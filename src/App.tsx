@@ -18,6 +18,7 @@ import { HarvestService } from './services/harvestService';
 import {
   SAMPLE_BRANCHES,
   SAMPLE_COMMITS,
+  SAMPLE_OTHER_REPO_COMMITS,
   SAMPLE_PROJECT_ASSIGNMENTS,
   SAMPLE_REPOS,
 } from './services/sampleData';
@@ -94,6 +95,12 @@ export function App() {
   const [translatingTaskId, setTranslatingTaskId] = useState<string | null>(null);
   const [isTranslatingAll, setIsTranslatingAll] = useState(false);
   const [improvingTaskId, setImprovingTaskId] = useState<string | null>(null);
+
+  // Multi-repository commit scanning
+  const [includeOtherRepos, setIncludeOtherRepos] = useState(false);
+  const [isLoadingOtherRepos, setIsLoadingOtherRepos] = useState(false);
+  const [selectedDayFilter, setSelectedDayFilter] = useState('all');
+  const [otherRepoCommits, setOtherRepoCommits] = useState<GitHubCommit[]>([]);
 
   // Telemetry Log Console
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryLog[]>([
@@ -457,6 +464,110 @@ export function App() {
     loadCommits();
   }, [loadCommits]);
 
+  // Load commits from other user repositories when option is enabled
+  const loadOtherRepoCommits = useCallback(async () => {
+    if (!includeOtherRepos) {
+      setOtherRepoCommits([]);
+      return;
+    }
+
+    setIsLoadingOtherRepos(true);
+    addLog(
+      'info',
+      'A procurar commits de outros repositórios para o período selecionado...',
+      undefined,
+      'MULTI_REPO_SCAN'
+    );
+
+    try {
+      if (isDemoMode) {
+        await new Promise((r) => setTimeout(r, 400));
+        setOtherRepoCommits(SAMPLE_OTHER_REPO_COMMITS);
+        addLog(
+          'success',
+          `${SAMPLE_OTHER_REPO_COMMITS.length} commits encontrados em outros repositórios (Modo Demo).`,
+          200,
+          'MULTI_REPO_OK'
+        );
+      } else if (credentials.githubToken && repos.length > 0) {
+        const gh = new GitHubService(credentials.githubToken);
+
+        const isSpecificDay = selectedDayFilter !== 'all' && selectedDayFilter.length === 10;
+        const since = isSpecificDay
+          ? `${selectedDayFilter}T00:00:00Z`
+          : `${dateRange.startDate}T00:00:00Z`;
+        const until = isSpecificDay
+          ? `${selectedDayFilter}T23:59:59Z`
+          : `${dateRange.endDate}T23:59:59Z`;
+
+        const fetched = await gh.fetchCommitsFromOtherRepos({
+          repos,
+          currentRepoFullName: selectedRepo,
+          since,
+          until,
+          author: effectiveAuthor || undefined,
+          maxRepos: 15,
+        });
+
+        setOtherRepoCommits(fetched);
+        addLog(
+          'success',
+          `${fetched.length} commits de outros repositórios encontrados para este período.`,
+          200,
+          'MULTI_REPO_OK'
+        );
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch other repo commits:', err);
+      addLog('warn', `Aviso ao procurar outros repositórios: ${err.message}`, 400, 'MULTI_REPO_WARN');
+    } finally {
+      setIsLoadingOtherRepos(false);
+    }
+  }, [
+    includeOtherRepos,
+    selectedDayFilter,
+    dateRange,
+    isDemoMode,
+    credentials.githubToken,
+    repos,
+    selectedRepo,
+    effectiveAuthor,
+    addLog,
+  ]);
+
+  useEffect(() => {
+    loadOtherRepoCommits();
+  }, [loadOtherRepoCommits]);
+
+  // Combined list of all displayed commits (current repo + other repos if enabled)
+  const allDisplayedCommits = useMemo(() => {
+    const taggedCurrent = commits.map((c) => ({
+      ...c,
+      repoName: c.repoName || selectedRepo.split('/')[1] || selectedRepo,
+      repoFullName: c.repoFullName || selectedRepo,
+    }));
+
+    if (!includeOtherRepos || otherRepoCommits.length === 0) {
+      return taggedCurrent;
+    }
+
+    const shaMap = new Map<string, GitHubCommit>();
+    for (const c of taggedCurrent) {
+      shaMap.set(c.sha, c);
+    }
+    for (const c of otherRepoCommits) {
+      if (!shaMap.has(c.sha)) {
+        shaMap.set(c.sha, c);
+      }
+    }
+
+    return Array.from(shaMap.values()).sort((a, b) => {
+      const dateA = new Date(a.commit.author.date).getTime();
+      const dateB = new Date(b.commit.author.date).getTime();
+      return dateB - dateA;
+    });
+  }, [commits, includeOtherRepos, otherRepoCommits, selectedRepo]);
+
   // Check repo mapping preset
   const activeMapping = useMemo(() => {
     if (!selectedRepo) return null;
@@ -502,7 +613,7 @@ export function App() {
 
   // Transform with Gemini Action
   const handleTransformWithGemini = async () => {
-    const selectedCommits = commits.filter((c) => selectedCommitShas.has(c.sha));
+    const selectedCommits = allDisplayedCommits.filter((c) => selectedCommitShas.has(c.sha));
     if (selectedCommits.length === 0) return;
 
     setIsTransforming(true);
@@ -554,7 +665,7 @@ export function App() {
         savedMap?.taskId || defaultProj?.task_assignments?.[0]?.task?.id || null;
 
       const newWorkbenchTasks: WorkbenchTask[] = generatedItems.map((item, idx) => {
-        // Guarantee exact spentDate from the matching commit
+        // Guarantee exact spentDate and repo mapping from the matching commit
         const matchingCommit =
           selectedCommits.find((c) =>
             item.sourceCommitShas?.some((s) => c.sha.startsWith(s))
@@ -563,20 +674,29 @@ export function App() {
         const commitDate = matchingCommit?.commit?.author?.date?.substring(0, 10);
         const exactSpentDate = commitDate || item.spentDate || dateRange.endDate;
 
+        // Use matching commit's repository mapping if available
+        const commitRepo = matchingCommit?.repoFullName || selectedRepo;
+        const repoMap = storageService.getMappingForRepo(commitRepo);
+        const itemProjId = repoMap?.projectId || defaultProjId;
+        const itemProj = projectAssignments.find((p) => p.project.id === itemProjId);
+        const itemTaskId =
+          repoMap?.taskId || itemProj?.task_assignments?.[0]?.task?.id || defaultTaskId;
+
         return {
           id: item.id || `task-wb-${Date.now()}-${idx + 1}`,
           businessTitle: item.businessTitle,
           businessDescription: item.businessDescription,
           spentDate: exactSpentDate,
           hours: item.suggestedHours || 0.75,
-          projectId: defaultProjId,
-          taskId: defaultTaskId,
+          projectId: itemProjId,
+          taskId: itemTaskId,
           sourceCommitShas: item.sourceCommitShas?.length
             ? item.sourceCommitShas
             : matchingCommit
             ? [matchingCommit.sha.substring(0, 7)]
             : [],
           syncStatus: 'pending',
+          repoFullName: commitRepo,
         };
       });
 
@@ -647,8 +767,9 @@ export function App() {
       );
 
       // Save mapping memory for repository
-      if (selectedRepo && task.projectId && task.taskId) {
-        storageService.saveRepoProjectMapping(selectedRepo, task.projectId, task.taskId);
+      const targetRepo = task.repoFullName || selectedRepo;
+      if (targetRepo && task.projectId && task.taskId) {
+        storageService.saveRepoProjectMapping(targetRepo, task.projectId, task.taskId);
       }
 
       // Mark source commit SHAs as synced
@@ -1009,7 +1130,7 @@ export function App() {
           branches={branches}
           selectedBranch={selectedBranch}
           onSelectBranch={setSelectedBranch}
-          commits={commits}
+          commits={allDisplayedCommits}
           isLoadingCommits={isLoadingCommits}
           onRefreshCommits={loadCommits}
           selectedCommitShas={selectedCommitShas}
@@ -1018,6 +1139,11 @@ export function App() {
           onDeselectAllCommits={handleDeselectAllCommits}
           isShaSynced={isShaSynced}
           currentAuthor={effectiveAuthor}
+          includeOtherRepos={includeOtherRepos}
+          onToggleIncludeOtherRepos={setIncludeOtherRepos}
+          isLoadingOtherRepos={isLoadingOtherRepos}
+          selectedDayFilter={selectedDayFilter}
+          onSelectDayFilter={setSelectedDayFilter}
         />
 
         {/* Right Pane: AI Task Mapper & Harvest Payload Builder (55% width) */}

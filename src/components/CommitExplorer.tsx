@@ -31,6 +31,11 @@ interface CommitExplorerProps {
   onDeselectAllCommits: () => void;
   isShaSynced: (sha: string) => boolean;
   currentAuthor?: string;
+  includeOtherRepos?: boolean;
+  onToggleIncludeOtherRepos?: (include: boolean) => void;
+  isLoadingOtherRepos?: boolean;
+  selectedDayFilter?: string;
+  onSelectDayFilter?: (day: string) => void;
 }
 
 export const CommitExplorer: React.FC<CommitExplorerProps> = ({
@@ -49,11 +54,24 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
   onDeselectAllCommits,
   isShaSynced,
   currentAuthor,
+  includeOtherRepos = false,
+  onToggleIncludeOtherRepos,
+  isLoadingOtherRepos = false,
+  selectedDayFilter: propSelectedDayFilter,
+  onSelectDayFilter,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [hideSynced, setHideSynced] = useState(false);
-  const [selectedDayFilter, setSelectedDayFilter] = useState<string>('all');
+  const [internalDayFilter, setInternalDayFilter] = useState<string>('all');
   const [expandedCommitSha, setExpandedCommitSha] = useState<string | null>(null);
+
+  const activeDayFilter =
+    propSelectedDayFilter !== undefined ? propSelectedDayFilter : internalDayFilter;
+
+  const setDayFilter = (val: string) => {
+    if (onSelectDayFilter) onSelectDayFilter(val);
+    setInternalDayFilter(val);
+  };
 
   const formatDateGroupLabel = (dateKey: string) => {
     try {
@@ -104,7 +122,7 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
       if (hideSynced && isSynced) return false;
 
       const dateKey = c.commit.author?.date ? c.commit.author.date.substring(0, 10) : 'unknown';
-      if (selectedDayFilter !== 'all' && dateKey !== selectedDayFilter) {
+      if (activeDayFilter !== 'all' && dateKey !== activeDayFilter) {
         return false;
       }
 
@@ -112,10 +130,11 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
       const q = searchQuery.toLowerCase();
       const msg = c.commit.message.toLowerCase();
       const author = (c.commit.author?.name || '').toLowerCase();
+      const repo = (c.repoName || c.repoFullName || '').toLowerCase();
       const sha = c.sha.toLowerCase();
-      return msg.includes(q) || author.includes(q) || sha.includes(q);
+      return msg.includes(q) || author.includes(q) || repo.includes(q) || sha.includes(q);
     });
-  }, [commits, hideSynced, selectedDayFilter, searchQuery, isShaSynced]);
+  }, [commits, hideSynced, activeDayFilter, searchQuery, isShaSynced]);
 
   // Group filtered commits by day
   const commitGroups = useMemo(() => {
@@ -268,8 +287,8 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
           {availableDays.length > 1 && (
             <div className="relative shrink-0 max-w-[150px]">
               <select
-                value={selectedDayFilter}
-                onChange={(e) => setSelectedDayFilter(e.target.value)}
+                value={activeDayFilter}
+                onChange={(e) => setDayFilter(e.target.value)}
                 className="w-full bg-[#0d1117] border border-[#30363d] px-2 py-1 text-xs font-mono text-[#e6edf3] cursor-pointer appearance-none truncate pr-5 hover:border-[#2f81f7]"
                 title="Filtrar por dia para selecionar e lançar no Harvest"
               >
@@ -327,6 +346,35 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Checkbox to show commits from other repos */}
+          {onToggleIncludeOtherRepos && (
+            <label
+              className="flex items-center space-x-1 text-[11px] font-mono cursor-pointer transition-colors"
+              title="Mostrar commits feitos noutros repositórios para este dia ou período"
+            >
+              <input
+                type="checkbox"
+                checked={includeOtherRepos}
+                onChange={(e) => onToggleIncludeOtherRepos(e.target.checked)}
+                className="accent-[#ff6c37] cursor-pointer h-3 w-3"
+              />
+              <span
+                className={
+                  includeOtherRepos
+                    ? 'text-[#ff6c37] font-semibold'
+                    : 'text-[#8b949e] hover:text-[#e6edf3]'
+                }
+              >
+                Outros repos
+              </span>
+              {isLoadingOtherRepos && (
+                <RefreshCw className="w-2.5 h-2.5 animate-spin text-[#ff6c37]" />
+              )}
+            </label>
+          )}
+
+          <span className="text-[#30363d]">|</span>
+
           <label className="flex items-center space-x-1 text-[11px] font-mono text-[#8b949e] cursor-pointer">
             <input
               type="checkbox"
@@ -389,13 +437,29 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
                     </span>
                   </label>
 
-                  <button
-                    type="button"
-                    onClick={() => handleToggleDateGroup(group.commits)}
-                    className="text-[11px] text-[#2f81f7] hover:text-[#58a6ff] hover:underline font-mono"
-                  >
-                    {areAllGroupSelected ? 'Desmarcar dia' : 'Selecionar dia'}
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    {onToggleIncludeOtherRepos && !includeOtherRepos && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onToggleIncludeOtherRepos(true);
+                          setDayFilter(group.dateKey);
+                        }}
+                        className="text-[10px] text-[#8b949e] hover:text-[#58a6ff] hover:underline font-mono"
+                        title="Ver também os commits feitos noutros repositórios neste dia"
+                      >
+                        + Outros repos
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleDateGroup(group.commits)}
+                      className="text-[11px] text-[#2f81f7] hover:text-[#58a6ff] hover:underline font-mono"
+                    >
+                      {areAllGroupSelected ? 'Desmarcar dia' : 'Selecionar dia'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Commits in this Day */}
@@ -417,7 +481,7 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
                       >
                         {/* Commit Row Header */}
                         <div className="px-3 py-1.5 flex items-center justify-between space-x-2 text-xs">
-                          <div className="flex items-center space-x-2 min-w-0 flex-1">
+                          <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                             {/* Checkbox */}
                             <input
                               type="checkbox"
@@ -429,7 +493,7 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
                             {/* Expand/Collapse details chevron */}
                             <button
                               onClick={() => setExpandedCommitSha(isExpanded ? null : commit.sha)}
-                              className="text-[#8b949e] hover:text-[#e6edf3] p-0.5"
+                              className="text-[#8b949e] hover:text-[#e6edf3] p-0.5 shrink-0"
                             >
                               {isExpanded ? (
                                 <ChevronDown className="w-3.5 h-3.5" />
@@ -437,6 +501,16 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
                                 <ChevronRight className="w-3.5 h-3.5" />
                               )}
                             </button>
+
+                            {/* Repo Badge */}
+                            {commit.repoName && (
+                              <span
+                                className="px-1.5 py-0.2 text-[10px] font-mono text-[#58a6ff] bg-[#21262d] border border-[#30363d] shrink-0 truncate max-w-[130px]"
+                                title={`Repositório: ${commit.repoFullName || commit.repoName}`}
+                              >
+                                {commit.repoName}
+                              </span>
+                            )}
 
                             {/* Commit Message */}
                             <span

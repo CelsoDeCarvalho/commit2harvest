@@ -117,6 +117,71 @@ export const SAMPLE_COMMITS: GitHubCommit[] = [
     },
     author: { login: 'celso', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
     html_url: 'https://github.com/saudigitus/helpdesk-portal/commit/b2d4f6a',
+    repoName: 'helpdesk-portal',
+    repoFullName: 'saudigitus/helpdesk-portal',
+  },
+];
+
+export const SAMPLE_OTHER_REPO_COMMITS: GitHubCommit[] = [
+  {
+    sha: 'd1e2f3a456789012345678901234567890123456',
+    commit: {
+      author: {
+        name: 'Celso',
+        email: 'celso@example.com',
+        date: '2026-11-09T10:15:00Z',
+      },
+      message: 'feat(tracker): synchronize enrollment attendance records with DHIS2 core API\n\nImplements automated payload sync for biometric records.',
+    },
+    author: { login: 'celso', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+    html_url: 'https://github.com/saudigitus/dhis2-tracker-sync/commit/d1e2f3a',
+    repoName: 'dhis2-tracker-sync',
+    repoFullName: 'saudigitus/dhis2-tracker-sync',
+  },
+  {
+    sha: 'f4e3d2c109876543210987654321098765432109',
+    commit: {
+      author: {
+        name: 'Celso',
+        email: 'celso@example.com',
+        date: '2026-11-08T15:20:00Z',
+      },
+      message: 'refactor(combobox): add accessible keyboard navigation and click-outside dismissal\n\nImplements real-time filtering and ESC key handlers.',
+    },
+    author: { login: 'celso', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+    html_url: 'https://github.com/developer/commit2harvest/commit/f4e3d2c',
+    repoName: 'commit2harvest',
+    repoFullName: 'developer/commit2harvest',
+  },
+  {
+    sha: 'c7b8a90123456789012345678901234567890123',
+    commit: {
+      author: {
+        name: 'Celso',
+        email: 'celso@example.com',
+        date: '2026-08-03T11:00:00Z',
+      },
+      message: 'feat(profile): build the student profile from the program metadata\n\nAutomates profile field generation directly from DHIS2 program stages.',
+    },
+    author: { login: 'celso', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+    html_url: 'https://github.com/saudigitus/dhis2-semis-student-profile/commit/c7b8a90',
+    repoName: 'dhis2-semis-student-profile',
+    repoFullName: 'saudigitus/dhis2-semis-student-profile',
+  },
+  {
+    sha: 'b9a8c7d6e5f41234567890123456789012345678',
+    commit: {
+      author: {
+        name: 'Celso',
+        email: 'celso@example.com',
+        date: '2026-08-03T15:30:00Z',
+      },
+      message: 'fix(profile-detail): resolve final result status badges and colors\n\nFixes badge color coding for graduated students.',
+    },
+    author: { login: 'celso', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+    html_url: 'https://github.com/saudigitus/dhis2-semis-student-profile/commit/b9a8c7d',
+    repoName: 'dhis2-semis-student-profile',
+    repoFullName: 'saudigitus/dhis2-semis-student-profile',
   },
 ];
 

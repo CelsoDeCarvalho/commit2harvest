@@ -58,6 +58,8 @@ export interface GitHubCommit {
     avatar_url: string;
   } | null;
   html_url: string;
+  repoName?: string;
+  repoFullName?: string;
 }
 
 export interface GeminiTaskItem {
@@ -134,6 +136,7 @@ export interface WorkbenchTask {
   syncStatus: 'pending' | 'syncing' | 'synced' | 'error';
   syncError?: string;
   harvestEntryId?: number;
+  repoFullName?: string;
 }
 
 export interface TelemetryLog {

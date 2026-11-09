@@ -148,4 +148,76 @@ export class GitHubService {
 
     return allCommits;
   }
+
+  async fetchCommitsFromOtherRepos(params: {
+    repos: GitHubRepo[];
+    currentRepoFullName: string;
+    since?: string;
+    until?: string;
+    author?: string;
+    maxRepos?: number;
+  }): Promise<GitHubCommit[]> {
+    const { repos, currentRepoFullName, since, until, author, maxRepos = 15 } = params;
+    if (!this.token) {
+      return [];
+    }
+
+    const otherRepos = repos
+      .filter((r) => r.full_name.toLowerCase() !== currentRepoFullName.toLowerCase())
+      .slice(0, maxRepos);
+
+    if (otherRepos.length === 0) {
+      return [];
+    }
+
+    const promises = otherRepos.map(async (r) => {
+      try {
+        const [owner, name] = r.full_name.split('/');
+        if (!owner || !name) return [];
+
+        const commits = await this.fetchCommits({
+          owner,
+          repo: name,
+          since,
+          until,
+          author,
+          maxCommits: 40,
+        });
+
+        return commits.map((c) => ({
+          ...c,
+          repoName: r.name,
+          repoFullName: r.full_name,
+        }));
+      } catch {
+        return [];
+      }
+    });
+
+    const results = await Promise.allSettled(promises);
+    const combined: GitHubCommit[] = [];
+
+    for (const res of results) {
+      if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+        combined.push(...res.value);
+      }
+    }
+
+    if (author && author.trim()) {
+      const target = author.trim().toLowerCase();
+      return combined.filter((c) => {
+        const login = c.author?.login?.toLowerCase() || '';
+        const name = c.commit?.author?.name?.toLowerCase() || '';
+        const email = c.commit?.author?.email?.toLowerCase() || '';
+        return (
+          login === target ||
+          name === target ||
+          name.includes(target) ||
+          email.includes(target)
+        );
+      });
+    }
+
+    return combined;
+  }
 }
