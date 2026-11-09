@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { HarvestProjectAssignment, WorkbenchTask } from '../types';
+import { parseDynamicHours, formatDynamicHours } from '../utils/timeUtils';
 import {
   Sparkles,
   Send,
@@ -15,6 +16,67 @@ import {
   Calendar,
   Languages,
 } from 'lucide-react';
+
+interface DynamicHoursInputProps {
+  hours: number;
+  format?: 'natural' | 'decimal';
+  onChange: (hours: number) => void;
+}
+
+const DynamicHoursInput: React.FC<DynamicHoursInputProps> = ({
+  hours,
+  format = 'natural',
+  onChange,
+}) => {
+  const [text, setText] = useState<string>(() => formatDynamicHours(hours, format));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setText(formatDynamicHours(hours, format));
+    }
+  }, [hours, format, isFocused]);
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    const parsed = parseDynamicHours(text);
+    onChange(parsed);
+    setText(formatDynamicHours(parsed, format));
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setText(val);
+    const parsed = parseDynamicHours(val);
+    if (!isNaN(parsed) && parsed >= 0) {
+      onChange(parsed);
+    }
+  };
+
+  return (
+    <div
+      className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] px-1.5 py-0.5 hover:border-[#8b949e] focus-within:border-[#2f81f7] transition-colors"
+      title={`Duração: ${formatDynamicHours(hours, 'natural')} (${hours.toFixed(2)}h no Harvest). Digite 45m, 15m, 1h26m, 1.5, etc.`}
+    >
+      <Clock className="w-3 h-3 text-[#ff6c37]" />
+      <input
+        type="text"
+        value={text}
+        onFocus={() => setIsFocused(true)}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        placeholder="45m / 1h26m"
+        className="w-16 bg-transparent text-right font-mono text-xs text-[#e6edf3] outline-none"
+      />
+      {format === 'decimal' && <span className="text-[#8b949e] text-xs font-mono">h</span>}
+    </div>
+  );
+};
 
 interface TaskWorkbenchProps {
   tasks: WorkbenchTask[];
@@ -39,6 +101,7 @@ interface TaskWorkbenchProps {
   isTranslatingAll: boolean;
   onImproveTask?: (taskId: string) => void;
   improvingTaskId?: string | null;
+  hoursDisplayFormat?: 'natural' | 'decimal';
 }
 
 export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
@@ -64,6 +127,7 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
   isTranslatingAll,
   onImproveTask,
   improvingTaskId,
+  hoursDisplayFormat = 'natural',
 }) => {
   const readyTasks = tasks.filter(
     (t) => t.syncStatus !== 'synced' && t.projectId && t.taskId && t.hours > 0
@@ -93,8 +157,16 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
             {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
           </span>
           <span className="text-[#30363d]">|</span>
-          <span className="text-[#e6edf3] font-semibold tabular-nums">
-            {totalHours.toFixed(2)} hrs total
+          <span
+            className="text-[#e6edf3] font-semibold tabular-nums"
+            title={`${totalHours.toFixed(2)}h no total`}
+          >
+            {formatDynamicHours(totalHours, hoursDisplayFormat)} total
+            {hoursDisplayFormat === 'natural' && (
+              <span className="text-[#8b949e] font-normal ml-1">
+                ({totalHours.toFixed(2)}h)
+              </span>
+            )}
           </span>
           {syncedTasksCount > 0 && (
             <>
@@ -342,7 +414,7 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                     {task.spentDate && (
                       <span
                         className="text-[10px] font-mono px-1.5 py-0.5 border border-[#30363d] bg-[#0d1117] text-[#8b949e] shrink-0"
-                        title={`Total somado para ${task.spentDate}: ${(dailyHoursMap.get(task.spentDate) || 0).toFixed(2)}h (Meta: 8.00h)`}
+                        title={`Total somado para ${task.spentDate}: ${(dailyHoursMap.get(task.spentDate) || 0).toFixed(2)}h (${formatDynamicHours(dailyHoursMap.get(task.spentDate) || 0, 'natural')}) - Meta: 8.00h`}
                       >
                         Dia:{' '}
                         <span
@@ -352,29 +424,20 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                               : 'text-[#ff6c37] font-semibold'
                           }
                         >
-                          {(dailyHoursMap.get(task.spentDate) || 0).toFixed(2)}h
+                          {formatDynamicHours(
+                            dailyHoursMap.get(task.spentDate) || 0,
+                            hoursDisplayFormat
+                          )}
                         </span>
                       </span>
                     )}
 
-                    {/* Hours Input */}
-                    <div className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] px-1.5 py-0.5">
-                      <Clock className="w-3 h-3 text-[#8b949e]" />
-                      <input
-                        type="number"
-                        step="0.25"
-                        min="0.1"
-                        max="24"
-                        value={task.hours}
-                        onChange={(e) =>
-                          onUpdateTask(task.id, {
-                            hours: parseFloat(e.target.value) || 0,
-                          })
-                        }
-                        className="w-16 bg-transparent text-right font-mono text-xs text-[#e6edf3] outline-none"
-                      />
-                      <span className="text-[#8b949e] text-xs font-mono">h</span>
-                    </div>
+                    {/* Dynamic Hours Input (supports 45m, 15m, 1h26m, 1.5, etc.) */}
+                    <DynamicHoursInput
+                      hours={Number(task.hours) || 0}
+                      format={hoursDisplayFormat}
+                      onChange={(newH) => onUpdateTask(task.id, { hours: newH })}
+                    />
 
                     {/* Individual Task Translate Button */}
                     <button

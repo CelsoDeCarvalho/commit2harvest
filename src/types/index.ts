@@ -6,6 +6,12 @@ export interface ApiCredentials {
   githubAuthorFilter?: string;
 }
 
+export interface AppSettings {
+  descriptionFormat: 'paragraph' | 'bullets';
+  entrySeparator: string;
+  hoursDisplayFormat: 'natural' | 'decimal';
+}
+
 export type ConnectionHealth = 'idle' | 'connected' | 'disconnected' | 'testing' | 'error';
 
 export interface ConnectionStatus {

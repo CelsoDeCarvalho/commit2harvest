@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ApiCredentials,
+  AppSettings,
   ConnectionStatus,
   DateRange,
   GitHubBranch,
@@ -38,6 +39,9 @@ export function App() {
   // Credentials & Settings Modal
   const [credentials, setCredentials] = useState<ApiCredentials>(() =>
     storageService.getCredentials()
+  );
+  const [appSettings, setAppSettings] = useState<AppSettings>(() =>
+    storageService.getSettings()
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTestingConnections, setIsTestingConnections] = useState(false);
@@ -217,6 +221,18 @@ export function App() {
     if (newCreds.githubToken || newCreds.geminiApiKey || newCreds.harvestAccessToken) {
       setIsDemoMode(false);
     }
+  };
+
+  // Save formatting & timesheet settings from Settings
+  const handleSaveAppSettings = (newSettings: AppSettings) => {
+    storageService.saveSettings(newSettings);
+    setAppSettings(newSettings);
+    addLog(
+      'success',
+      'Configurações de notas, separador e formato de horas salvas com sucesso.',
+      200,
+      'SETTINGS'
+    );
   };
 
   // Toggle demo mode
@@ -693,9 +709,9 @@ export function App() {
   // Smart contextual generator based on actual commit data (1 commit = 1 task)
   const generateSmartItems = useCallback(
     (selectedCommits: GitHubCommit[], lang: 'en' | 'pt') => {
-      return analyzeCommitsToTasks(selectedCommits, lang);
+      return analyzeCommitsToTasks(selectedCommits, lang, appSettings.descriptionFormat);
     },
-    []
+    [appSettings.descriptionFormat]
   );
 
   // Transform with Gemini Action
@@ -720,7 +736,8 @@ export function App() {
           generatedItems = await gemini.transformCommitsToTasks(
             selectedCommits,
             selectedRepo,
-            generationLanguage
+            generationLanguage,
+            appSettings.descriptionFormat
           );
           // Calibrate hours by day targeting ~8.0h per workday based on commit complexity
           generatedItems = calibrateDailyHours(generatedItems, selectedCommits);
@@ -816,12 +833,13 @@ export function App() {
       prev.map((t) => (t.id === task.id ? { ...t, syncStatus: 'syncing', syncError: undefined } : t))
     );
 
+    const separator = appSettings.entrySeparator ?? ': ';
     const payload = {
       project_id: task.projectId,
       task_id: task.taskId,
       spent_date: task.spentDate,
       hours: task.hours,
-      notes: `${task.businessTitle}: ${task.businessDescription}`,
+      notes: `${task.businessTitle}${separator}${task.businessDescription}`,
     };
 
     addLog(
@@ -1131,7 +1149,8 @@ export function App() {
             task.businessTitle,
             task.businessDescription,
             commitMessages,
-            generationLanguage
+            generationLanguage,
+            appSettings.descriptionFormat
           );
           improvedTitle = res.businessTitle;
           improvedDescription = res.businessDescription;
@@ -1139,7 +1158,12 @@ export function App() {
           console.warn('Gemini API call failed during improve, using semantic analyzer:', apiErr);
           const targetCommit = taskCommits[0] || commits[0];
           if (targetCommit) {
-            const localItem = analyzeCommitToTask(targetCommit, generationLanguage);
+            const localItem = analyzeCommitToTask(
+              targetCommit,
+              generationLanguage,
+              0,
+              appSettings.descriptionFormat
+            );
             improvedTitle = localItem.businessTitle;
             improvedDescription = localItem.businessDescription;
           }
@@ -1148,7 +1172,12 @@ export function App() {
         await new Promise((r) => setTimeout(r, 400));
         const targetCommit = taskCommits[0] || commits[0];
         if (targetCommit) {
-          const localItem = analyzeCommitToTask(targetCommit, generationLanguage);
+          const localItem = analyzeCommitToTask(
+            targetCommit,
+            generationLanguage,
+            0,
+            appSettings.descriptionFormat
+          );
           improvedTitle = localItem.businessTitle;
           improvedDescription = localItem.businessDescription;
         }
@@ -1265,6 +1294,7 @@ export function App() {
           isTranslatingAll={isTranslatingAll}
           onImproveTask={handleImproveTask}
           improvingTaskId={improvingTaskId}
+          hoursDisplayFormat={appSettings.hoursDisplayFormat}
         />
       </div>
 
@@ -1288,6 +1318,8 @@ export function App() {
         isTesting={isTestingConnections}
         onClearSyncedHistory={handleClearSyncedHistory}
         syncedCount={syncedShas.size}
+        settings={appSettings}
+        onSaveSettings={handleSaveAppSettings}
       />
     </div>
   );

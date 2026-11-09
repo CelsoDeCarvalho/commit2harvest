@@ -211,12 +211,27 @@ function translateTitleToPT(enTitle: string, type: string): string {
  */
 export function generateElevatedDescription(
   commits: GitHubCommit[],
-  lang: 'en' | 'pt' = 'en'
+  lang: 'en' | 'pt' = 'en',
+  descriptionFormat: 'paragraph' | 'bullets' = 'paragraph'
 ): string {
+  const formatOutput = (text: string): string => {
+    if (descriptionFormat === 'bullets') {
+      if (text.startsWith('• ') || text.startsWith('- ')) return text;
+      const parts = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+      if (parts.length > 1) {
+        return parts.map((p) => `• ${p.trim()}`).join('\n');
+      }
+      return `• ${text}`;
+    }
+    return text;
+  };
+
   if (!commits || commits.length === 0) {
-    return lang === 'en'
-      ? 'Implemented requested functional adjustments and maintained platform operational stability.'
-      : 'Implementação de ajustes funcionais solicitados e manutenção da estabilidade operacional.';
+    return formatOutput(
+      lang === 'en'
+        ? 'Implemented requested functional adjustments and maintained platform operational stability.'
+        : 'Implementação de ajustes funcionais solicitados e manutenção da estabilidade operacional.'
+    );
   }
 
   const isEn = lang === 'en';
@@ -226,73 +241,97 @@ export function generateElevatedDescription(
   // 1. Specific known features (1 to 2 lines max)
   if (/customdhis2rulesengine|rules engine/i.test(raw)) {
     if (/onassign/i.test(raw)) {
-      return isEn
-        ? 'Enhanced DHIS2 business rules engine with onAssign callback support to automate dynamic field assignments across event forms.'
-        : 'Otimização do motor de regras DHIS2 com suporte a callbacks onAssign para automação de atribuições de campos na modal.';
+      return formatOutput(
+        isEn
+          ? 'Enhanced DHIS2 business rules engine with onAssign callback support to automate dynamic field assignments across event forms.'
+          : 'Otimização do motor de regras DHIS2 com suporte a callbacks onAssign para automação de atribuições de campos na modal.'
+      );
     }
-    return isEn
-      ? 'Integrated DHIS2 dynamic business rules engine into the event modal workflow to ensure automated validation consistency.'
-      : 'Integração do motor de regras dinâmicas DHIS2 na modal de eventos para garantir a validação automática das regras de negócio.';
+    return formatOutput(
+      isEn
+        ? 'Integrated DHIS2 dynamic business rules engine into the event modal workflow to ensure automated validation consistency.'
+        : 'Integração do motor de regras dinâmicas DHIS2 na modal de eventos para garantir a validação automática das regras de negócio.'
+    );
   }
 
   if (/event details modal|modal.*event details|modal.*details/i.test(raw)) {
-    return isEn
-      ? 'Implemented interactive event details modal with row-click selection and real-time hook synchronization to streamline record inspection.'
-      : 'Implementação da modal de detalhes do evento com seleção por clique na linha e sincronização em tempo real para consulta rápida de dados.';
+    return formatOutput(
+      isEn
+        ? 'Implemented interactive event details modal with row-click selection and real-time hook synchronization to streamline record inspection.'
+        : 'Implementação da modal de detalhes do evento com seleção por clique na linha e sincronização em tempo real para consulta rápida de dados.'
+    );
   }
 
   if (/exclude date type|date.*content filter/i.test(raw)) {
-    return isEn
-      ? 'Corrected enrollment content filters by properly handling date-type columns, eliminating filter anomalies and ensuring accurate search results.'
-      : 'Correção dos filtros de inscrição através do tratamento adequado de colunas de data, eliminando anomalias na pesquisa de registos.';
+    return formatOutput(
+      isEn
+        ? 'Corrected enrollment content filters by properly handling date-type columns, eliminating filter anomalies and ensuring accurate search results.'
+        : 'Correção dos filtros de inscrição através do tratamento adequado de colunas de data, eliminando anomalias na pesquisa de registos.'
+    );
   }
 
   if (/date filter|datepicker|persistent date/i.test(raw)) {
-    return isEn
-      ? 'Integrated calendar date range filtering with URL parameter persistence to standardize temporal record filtering across views.'
-      : 'Implementação de filtro por intervalo de datas com persistência nos parâmetros do URL para padronizar consultas temporais.';
+    return formatOutput(
+      isEn
+        ? 'Integrated calendar date range filtering with URL parameter persistence to standardize temporal record filtering across views.'
+        : 'Implementação de filtro por intervalo de datas com persistência nos parâmetros do URL para padronizar consultas temporais.'
+    );
   }
 
   if (/d2\.config|application name/i.test(raw)) {
-    return isEn
-      ? 'Updated application manifest configuration and system descriptions to improve platform clarity and metadata alignment.'
-      : 'Atualização das configurações do manifesto da aplicação e descrição do sistema para maior clareza e alinhamento de metadados.';
+    return formatOutput(
+      isEn
+        ? 'Updated application manifest configuration and system descriptions to improve platform clarity and metadata alignment.'
+        : 'Atualização das configurações do manifesto da aplicação e descrição do sistema para maior clareza e alinhamento de metadados.'
+    );
   }
 
   if (/terminology|"nova receita"|"nova de receita"/i.test(raw)) {
-    return isEn
-      ? "Standardized user-facing terminology to 'Nova Receita' across form headers and navigation menus for visual consistency."
-      : "Padronização da terminologia da aplicação para 'Nova Receita' nos cabeçalhos e menus de navegação para maior consistência visual.";
+    return formatOutput(
+      isEn
+        ? "Standardized user-facing terminology to 'Nova Receita' across form headers and navigation menus for visual consistency."
+        : "Padronização da terminologia da aplicação para 'Nova Receita' nos cabeçalhos e menus de navegação para maior consistência visual."
+    );
   }
 
   if (/absence|attendance/i.test(raw)) {
-    return isEn
-      ? 'Corrected student absence calculation logic based on status keys, ensuring reliable and accurate attendance reporting.'
-      : 'Correção da lógica de apuramento de assiduidade e faltas de estudantes com base nas chaves de estado para relatórios precisos.';
+    return formatOutput(
+      isEn
+        ? 'Corrected student absence calculation logic based on status keys, ensuring reliable and accurate attendance reporting.'
+        : 'Correção da lógica de apuramento de assiduidade e faltas de estudantes com base nas chaves de estado para relatórios precisos.'
+    );
   }
 
   if (/profile from.*metadata|program metadata/i.test(raw)) {
-    return isEn
-      ? 'Configured automatic student profile generation from program metadata to streamline record enrollment workflows.'
-      : 'Configuração da geração automática de perfis a partir dos metadados do programa para agilizar as inscrições.';
+    return formatOutput(
+      isEn
+        ? 'Configured automatic student profile generation from program metadata to streamline record enrollment workflows.'
+        : 'Configuração da geração automática de perfis a partir dos metadados do programa para agilizar as inscrições.'
+    );
   }
 
   if (/image upload|avatar/i.test(raw)) {
-    return isEn
-      ? 'Added user profile image upload functionality with enhanced avatar rendering across dashboard record summaries.'
-      : 'Implementado carregamento de fotografias de perfil e melhoria na exibição dos avatares nos resumos da plataforma.';
+    return formatOutput(
+      isEn
+        ? 'Added user profile image upload functionality with enhanced avatar rendering across dashboard record summaries.'
+        : 'Implementado carregamento de fotografias de perfil e melhoria na exibição dos avatares nos resumos da plataforma.'
+    );
   }
 
   if (/i18n|internationaliz/i.test(raw)) {
-    return isEn
-      ? 'Implemented internationalization support by replacing hardcoded UI labels with localized translation keys.'
-      : 'Implementação de suporte a internacionalização com substituição de textos fixos por chaves de tradução multilíngue.';
+    return formatOutput(
+      isEn
+        ? 'Implemented internationalization support by replacing hardcoded UI labels with localized translation keys.'
+        : 'Implementação de suporte a internacionalização com substituição de textos fixos por chaves de tradução multilíngue.'
+    );
   }
 
   if (/licence|license|bsd/i.test(raw)) {
-    return isEn
-      ? 'Formalized repository compliance with BSD 3-Clause licensing, author governance, and cleaned diagnostic debug logs.'
-      : 'Formalização de conformidade com licenciamento BSD 3-Clause, governança de autoria e limpeza de logs de depuração.';
+    return formatOutput(
+      isEn
+        ? 'Formalized repository compliance with BSD 3-Clause licensing, author governance, and cleaned diagnostic debug logs.'
+        : 'Formalização de conformidade com licenciamento BSD 3-Clause, governança de autoria e limpeza de logs de depuração.'
+    );
   }
 
   // 2. Generic high-level concise elevation (1 to 2 lines)
@@ -301,27 +340,35 @@ export function generateElevatedDescription(
     .trim();
 
   if (parsed.type === 'fix') {
-    return isEn
-      ? `Resolved operational defect in ${cleanSubject}, ensuring platform data integrity and uninterrupted user workflows.`
-      : `Correção de anomalia relativa a ${cleanSubject}, assegurando integridade dos dados e continuidade operacional.`;
+    return formatOutput(
+      isEn
+        ? `Resolved operational defect in ${cleanSubject}, ensuring platform data integrity and uninterrupted user workflows.`
+        : `Correção de anomalia relativa a ${cleanSubject}, assegurando integridade dos dados e continuidade operacional.`
+    );
   }
 
   if (parsed.type === 'refactor') {
-    return isEn
-      ? `Refactored ${cleanSubject} to optimize code architecture, improving response times and long-term maintainability.`
-      : `Refatoração de ${cleanSubject} para otimizar a arquitetura e melhorar a resposta dos fluxos de trabalho.`;
+    return formatOutput(
+      isEn
+        ? `Refactored ${cleanSubject} to optimize code architecture, improving response times and long-term maintainability.`
+        : `Refatoração de ${cleanSubject} para otimizar a arquitetura e melhorar a resposta dos fluxos de trabalho.`
+    );
   }
 
   if (parsed.type === 'perf') {
-    return isEn
-      ? `Optimized system throughput and query performance for ${cleanSubject}, reducing latency for end users.`
-      : `Otimização de desempenho e tempo de resposta para ${cleanSubject}, aumentando a fluidez da plataforma.`;
+    return formatOutput(
+      isEn
+        ? `Optimized system throughput and query performance for ${cleanSubject}, reducing latency for end users.`
+        : `Otimização de desempenho e tempo de resposta para ${cleanSubject}, aumentando a fluidez da plataforma.`
+    );
   }
 
   // Default feat / delivery (1-2 lines)
-  return isEn
-    ? `Delivered ${cleanSubject}, expanding user capabilities and streamlining operational tasks across the platform.`
-    : `Implementação de ${cleanSubject}, entregando novas funcionalidades aos utilizadores e melhorando a usabilidade.`;
+  return formatOutput(
+    isEn
+      ? `Delivered ${cleanSubject}, expanding user capabilities and streamlining operational tasks across the platform.`
+      : `Implementação de ${cleanSubject}, entregando novas funcionalidades aos utilizadores e melhorando a usabilidade.`
+  );
 }
 
 /**
@@ -460,7 +507,7 @@ export function calibrateDailyHours(
       continue;
     }
 
-    // Multiple tasks on the same day: distribute 8.0 hours proportionally by complexity
+    // Multiple tasks on the same day: distribute 8.0 hours (480 minutes) proportionally by complexity
     const weights: number[] = group.map((task) => {
       const firstSha = task.sourceCommitShas?.[0];
       const matchingCommit = firstSha ? commitMap.get(firstSha) : undefined;
@@ -472,40 +519,35 @@ export function calibrateDailyHours(
 
     const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
-    // Calculate proportional raw hours for each task
-    const rawHoursList = weights.map((w) => (w / totalWeight) * targetDailyHours);
+    // Dynamic minute distribution (targeting 480 minutes / 8.00 hours in 5-minute increments)
+    const targetMinutes = Math.round(targetDailyHours * 60);
+    const rawMinutesList = weights.map((w) =>
+      Math.max(15, Math.round(((w / totalWeight) * targetMinutes) / 5) * 5)
+    );
 
-    // Round to nearest quarter hour (0.25), minimum 0.25h
-    const roundedHoursList = rawHoursList.map((raw) => {
-      const quarterRounded = Math.round(raw * 4) / 4;
-      return Math.max(0.25, quarterRounded);
-    });
+    let currentMinutesSum = rawMinutesList.reduce((acc, m) => acc + m, 0);
+    let diffMinutes = targetMinutes - currentMinutesSum;
 
-    // Check discrepancy with targetDailyHours
-    let currentSum = roundedHoursList.reduce((acc, h) => acc + h, 0);
-    let diff = Math.round((targetDailyHours - currentSum) * 100) / 100;
-
-    // Adjust discrepancy in 0.25 steps to the highest-weight items
-    if (diff !== 0 && Math.abs(diff) < 3.0) {
+    if (diffMinutes !== 0 && Math.abs(diffMinutes) < 240) {
       const sortedIndices = weights
         .map((w, idx) => ({ w, idx }))
         .sort((a, b) => b.w - a.w)
         .map((item) => item.idx);
 
       let stepIndex = 0;
-      const step = diff > 0 ? 0.25 : -0.25;
+      const step = diffMinutes > 0 ? 5 : -5;
 
-      while (Math.abs(diff) >= 0.24 && stepIndex < sortedIndices.length * 4) {
+      while (diffMinutes !== 0 && stepIndex < sortedIndices.length * 20) {
         const targetIdx = sortedIndices[stepIndex % sortedIndices.length];
-        const newHour = roundedHoursList[targetIdx] + step;
-
-        if (newHour >= 0.25) {
-          roundedHoursList[targetIdx] = +(newHour.toFixed(2));
-          diff = Math.round((diff - step) * 100) / 100;
+        if (rawMinutesList[targetIdx] + step >= 15) {
+          rawMinutesList[targetIdx] += step;
+          diffMinutes -= step;
         }
         stepIndex++;
       }
     }
+
+    const roundedHoursList = rawMinutesList.map((m) => +((m / 60).toFixed(2)));
 
     // Assign calibrated hours to tasks
     group.forEach((task, idx) => {
@@ -526,11 +568,12 @@ export function calibrateDailyHours(
 export function analyzeCommitToTask(
   commit: GitHubCommit,
   lang: 'en' | 'pt' = 'en',
-  idx: number = 0
+  idx: number = 0,
+  descriptionFormat: 'paragraph' | 'bullets' = 'paragraph'
 ): GeminiTaskItem {
   const parsed = parseCommit(commit);
   const businessTitle = generateExecutiveTitle(parsed, lang);
-  const businessDescription = generateElevatedDescription([commit], lang);
+  const businessDescription = generateElevatedDescription([commit], lang, descriptionFormat);
   const complexityWeight = calculateCommitComplexity(commit, parsed);
 
   // Exact commit date in YYYY-MM-DD
@@ -538,8 +581,9 @@ export function analyzeCommitToTask(
     commit.commit?.author?.date?.substring(0, 10) ||
     new Date().toISOString().substring(0, 10);
 
-  // Initial estimate proportional to complexity (will be calibrated by calibrateDailyHours)
-  const initialHours = Math.max(0.5, Math.min(4.0, Math.round(complexityWeight * 0.75 * 4) / 4));
+  // Initial estimate in minutes proportional to complexity (e.g. 45m = 0.75h, 1h25m = 1.42h)
+  const initialMinutes = Math.max(15, Math.min(240, Math.round((complexityWeight * 30) / 5) * 5));
+  const initialHours = +((initialMinutes / 60).toFixed(2));
 
   return {
     id: `task-ai-${Date.now()}-${idx + 1}`,
@@ -553,17 +597,20 @@ export function analyzeCommitToTask(
 
 /**
  * Transforms an array of selected commits into individual Harvest timesheet tasks (1 commit = 1 task).
- * Each task accurately takes that commit's individual date, concise 1-2 line description,
+ * Each task accurately takes that commit's individual date, concise description,
  * and calibrated hours targeting ~8.0h per workday.
  */
 export function analyzeCommitsToTasks(
   commits: GitHubCommit[],
-  lang: 'en' | 'pt' = 'en'
+  lang: 'en' | 'pt' = 'en',
+  descriptionFormat: 'paragraph' | 'bullets' = 'paragraph'
 ): GeminiTaskItem[] {
   if (!commits || commits.length === 0) {
     return [];
   }
-  const rawTasks = commits.map((c, idx) => analyzeCommitToTask(c, lang, idx));
+  const rawTasks = commits.map((c, idx) =>
+    analyzeCommitToTask(c, lang, idx, descriptionFormat)
+  );
   return calibrateDailyHours(rawTasks, commits);
 }
 

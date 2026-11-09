@@ -1,6 +1,21 @@
 import React, { useState } from 'react';
-import { ApiCredentials, ConnectionStatus } from '../types';
-import { X, Key, CheckCircle2, XCircle, Loader2, Sparkles, Database, RefreshCw, Trash2 } from 'lucide-react';
+import { ApiCredentials, AppSettings, ConnectionStatus } from '../types';
+import {
+  X,
+  Key,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Sparkles,
+  Database,
+  RefreshCw,
+  Trash2,
+  FileText,
+  List,
+  Clock,
+  Sliders,
+  AlignLeft,
+} from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,6 +27,8 @@ interface SettingsModalProps {
   isTesting: boolean;
   onClearSyncedHistory: () => void;
   syncedCount: number;
+  settings: AppSettings;
+  onSaveSettings: (settings: AppSettings) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -24,9 +41,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isTesting,
   onClearSyncedHistory,
   syncedCount,
+  settings,
+  onSaveSettings,
 }) => {
   const [formData, setFormData] = useState<ApiCredentials>(credentials);
-  const [activeTab, setActiveTab] = useState<'credentials' | 'storage'>('credentials');
+  const [settingsData, setSettingsData] = useState<AppSettings>(settings);
+  const [activeTab, setActiveTab] = useState<'credentials' | 'formatting' | 'storage'>('credentials');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   if (!isOpen) return null;
@@ -38,12 +58,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleSave = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     onSaveCredentials(formData);
+    onSaveSettings(settingsData);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);
   };
 
   const handleTestAndSave = async () => {
     onSaveCredentials(formData);
+    onSaveSettings(settingsData);
     await onTestConnections(formData);
   };
 
@@ -81,6 +103,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             API Credentials
+          </button>
+          <button
+            onClick={() => setActiveTab('formatting')}
+            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              activeTab === 'formatting'
+                ? 'border-[#ff6c37] text-[#e6edf3]'
+                : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'
+            }`}
+          >
+            Notas & Formato
           </button>
           <button
             onClick={() => setActiveTab('storage')}
@@ -265,6 +297,200 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </p>
               </div>
             </div>
+          ) : activeTab === 'formatting' ? (
+            <div className="space-y-5">
+              {/* Description Style */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center space-x-1.5">
+                  <FileText className="w-3.5 h-3.5 text-[#ff6c37]" />
+                  <span>Formato da Descrição das Tarefas</span>
+                </label>
+                <p className="text-[11px] text-[#8b949e]">
+                  Escolha se as notas e entregáveis devem ser gerados em texto corrido contínuo ou organizados em tópicos (bullets).
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingsData((prev) => ({ ...prev, descriptionFormat: 'paragraph' }))
+                    }
+                    className={`flex items-start space-x-2.5 p-3 border text-left transition-colors ${
+                      settingsData.descriptionFormat === 'paragraph'
+                        ? 'border-[#ff6c37] bg-[#ff6c37]/10'
+                        : 'border-[#30363d] bg-[#0d1117] hover:border-[#8b949e]'
+                    }`}
+                  >
+                    <AlignLeft className="w-4 h-4 text-[#ff6c37] shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-[#e6edf3]">
+                        Texto Normal (Parágrafo)
+                      </div>
+                      <div className="text-[10px] text-[#8b949e] mt-0.5">
+                        Texto executivo fluido de 1 a 2 linhas, sem marcadores.
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingsData((prev) => ({ ...prev, descriptionFormat: 'bullets' }))
+                    }
+                    className={`flex items-start space-x-2.5 p-3 border text-left transition-colors ${
+                      settingsData.descriptionFormat === 'bullets'
+                        ? 'border-[#ff6c37] bg-[#ff6c37]/10'
+                        : 'border-[#30363d] bg-[#0d1117] hover:border-[#8b949e]'
+                    }`}
+                  >
+                    <List className="w-4 h-4 text-[#ff6c37] shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-[#e6edf3]">
+                        Em Tópicos (Bullets)
+                      </div>
+                      <div className="text-[10px] text-[#8b949e] mt-0.5">
+                        Tópicos objetivos iniciados por marcadores (• ou -).
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Note Separator */}
+              <div className="space-y-2 pt-2 border-t border-[#30363d]">
+                <label className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center space-x-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-[#ff6c37]" />
+                  <span>Separador entre Título e Descrição no Harvest</span>
+                </label>
+                <p className="text-[11px] text-[#8b949e]">
+                  O Harvest recebe o Título Executivo e a Descrição combinados. Por padrão usa <code className="text-[#2f81f7] font-mono">: </code> (Título: Descrição). Pode escolher um atalho ou digitar qualquer separador personalizado:
+                </p>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    { label: 'Dois pontos (: )', val: ': ' },
+                    { label: 'Traço ( - )', val: ' - ' },
+                    { label: 'Barra ( | )', val: ' | ' },
+                    { label: 'Quebra de linha (\\n)', val: '\n' },
+                    { label: 'Dois pontos + Linha (:\\n)', val: ':\n' },
+                    { label: 'Dupla barra ( // )', val: ' // ' },
+                    { label: 'Seta ( → )', val: ' → ' },
+                  ].map((p) => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() =>
+                        setSettingsData((prev) => ({ ...prev, entrySeparator: p.val }))
+                      }
+                      className={`px-2.5 py-1 text-[11px] font-mono border transition-colors ${
+                        settingsData.entrySeparator === p.val
+                          ? 'border-[#ff6c37] bg-[#ff6c37]/15 text-[#ff6c37] font-semibold'
+                          : 'border-[#30363d] bg-[#0d1117] text-[#8b949e] hover:text-[#e6edf3]'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom separator input */}
+                <div className="space-y-1 pt-1">
+                  <div className="text-[11px] text-[#8b949e]">
+                    Separador Personalizado (qualquer texto ou símbolo):
+                  </div>
+                  <input
+                    type="text"
+                    value={settingsData.entrySeparator}
+                    onChange={(e) =>
+                      setSettingsData((prev) => ({ ...prev, entrySeparator: e.target.value }))
+                    }
+                    placeholder=": ou - ou qualquer separador..."
+                    className="w-full bg-[#0d1117] border border-[#30363d] px-3 py-1.5 text-xs font-mono text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7]"
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Hours Format */}
+              <div className="space-y-2 pt-2 border-t border-[#30363d]">
+                <label className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center space-x-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#ff6c37]" />
+                  <span>Apresentação das Horas (Super Dinâmicas)</span>
+                </label>
+                <p className="text-[11px] text-[#8b949e]">
+                  As horas não precisam de ser inteiras: suportam frações como <code className="text-[#238636] font-mono">45m</code>, <code className="text-[#238636] font-mono">15m</code>, <code className="text-[#238636] font-mono">1h26m</code>, <code className="text-[#238636] font-mono">1.5</code> ou <code className="text-[#238636] font-mono">45 minutos</code>. Escolha como prefere visualizá-las nos cartões:
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingsData((prev) => ({ ...prev, hoursDisplayFormat: 'natural' }))
+                    }
+                    className={`flex items-start space-x-2.5 p-3 border text-left transition-colors ${
+                      settingsData.hoursDisplayFormat === 'natural'
+                        ? 'border-[#ff6c37] bg-[#ff6c37]/10'
+                        : 'border-[#30363d] bg-[#0d1117] hover:border-[#8b949e]'
+                    }`}
+                  >
+                    <Clock className="w-4 h-4 text-[#ff6c37] shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-[#e6edf3]">
+                        Formato Natural (1h 26m, 45m, 15m)
+                      </div>
+                      <div className="text-[10px] text-[#8b949e] mt-0.5">
+                        Exibe horas e minutos reais no formato humano.
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingsData((prev) => ({ ...prev, hoursDisplayFormat: 'decimal' }))
+                    }
+                    className={`flex items-start space-x-2.5 p-3 border text-left transition-colors ${
+                      settingsData.hoursDisplayFormat === 'decimal'
+                        ? 'border-[#ff6c37] bg-[#ff6c37]/10'
+                        : 'border-[#30363d] bg-[#0d1117] hover:border-[#8b949e]'
+                    }`}
+                  >
+                    <div className="w-4 h-4 text-[#ff6c37] shrink-0 font-mono font-bold text-xs mt-0.5">
+                      .0
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-[#e6edf3]">
+                        Formato Decimal (1.43h, 0.75h)
+                      </div>
+                      <div className="text-[10px] text-[#8b949e] mt-0.5">
+                        Exibe o valor decimal correspondente do Harvest.
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Preview Box */}
+              <div className="pt-2 border-t border-[#30363d] space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-mono text-[#8b949e]">
+                  <span className="uppercase font-semibold">Exemplo em Tempo Real no Harvest</span>
+                  <span className="text-[#ff6c37]">Preview</span>
+                </div>
+                <div className="p-3 bg-[#0d1117] border border-[#30363d] font-mono text-xs text-[#e6edf3] whitespace-pre-wrap leading-relaxed">
+                  <span className="text-[#58a6ff] font-semibold">
+                    Integration of DHIS2 Rules Engine in Event Modal
+                  </span>
+                  <span className="text-[#ff6c37] font-bold">
+                    {settingsData.entrySeparator}
+                  </span>
+                  <span className="text-[#7ee787]">
+                    {settingsData.descriptionFormat === 'bullets'
+                      ? '• Integrated DHIS2 dynamic business rules engine into the event modal workflow.\n• Enhanced form state validation consistency.'
+                      : 'Integrated DHIS2 dynamic business rules engine into the event modal workflow to ensure automated validation consistency.'}
+                  </span>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="border border-[#30363d] bg-[#0d1117] p-3 space-y-2">
@@ -363,7 +589,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onClick={() => handleSave()}
               className="px-4 py-1.5 text-xs font-medium text-white bg-[#238636] hover:bg-[#2ea043] transition-colors uppercase tracking-wider"
             >
-              Save Credentials
+              Save Settings
             </button>
           </div>
         </div>

@@ -1,12 +1,19 @@
-import { ApiCredentials, RepoProjectMap } from '../types';
+import { ApiCredentials, AppSettings, RepoProjectMap } from '../types';
 
 const STORAGE_KEYS = {
   CREDENTIALS: 'c2h_credentials',
+  APP_SETTINGS: 'c2h_app_settings',
   SYNCED_SHAS: 'c2h_synced_shas',
   REPO_PROJECT_MAP: 'c2h_repo_project_map',
   LAST_REPO: 'c2h_last_repo',
   LAST_BRANCH: 'c2h_last_branch',
   GITHUB_USER: 'c2h_github_user',
+};
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  descriptionFormat: 'paragraph',
+  entrySeparator: ': ',
+  hoursDisplayFormat: 'natural',
 };
 
 export const storageService = {
@@ -118,6 +125,29 @@ export const storageService = {
     localStorage.setItem(STORAGE_KEYS.LAST_REPO, repo);
     if (branch) {
       localStorage.setItem(STORAGE_KEYS.LAST_BRANCH, branch);
+    }
+  },
+
+  getSettings(): AppSettings {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.APP_SETTINGS);
+      if (!stored) return { ...DEFAULT_APP_SETTINGS };
+      const parsed = JSON.parse(stored);
+      return {
+        descriptionFormat: parsed.descriptionFormat === 'bullets' ? 'bullets' : 'paragraph',
+        entrySeparator: typeof parsed.entrySeparator === 'string' ? parsed.entrySeparator : ': ',
+        hoursDisplayFormat: parsed.hoursDisplayFormat === 'decimal' ? 'decimal' : 'natural',
+      };
+    } catch {
+      return { ...DEFAULT_APP_SETTINGS };
+    }
+  },
+
+  saveSettings(settings: AppSettings): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.APP_SETTINGS, JSON.stringify(settings));
+    } catch (e) {
+      console.warn('Failed to save app settings to localStorage', e);
     }
   },
 };

@@ -99,7 +99,8 @@ export class GeminiService {
   async transformCommitsToTasks(
     commits: GitHubCommit[],
     repoName?: string,
-    language: 'en' | 'pt' = 'en'
+    language: 'en' | 'pt' = 'en',
+    descriptionFormat: 'paragraph' | 'bullets' = 'paragraph'
   ): Promise<GeminiTaskItem[]> {
     if (!commits || commits.length === 0) {
       return [];
@@ -119,6 +120,16 @@ export class GeminiService {
 
     const isEnglish = language === 'en';
 
+    const descRuleEn =
+      descriptionFormat === 'bullets'
+        ? "3. 'businessDescription': An elevated Harvest timesheet note formatted as concise executive bullet points starting with '• ' (e.g. '• Integrated DHIS2 rules engine into modal.\\n• Standardized form validation.'). 1 to 2 bullets, approx 80-180 characters."
+        : "3. 'businessDescription': An elevated, professional Harvest timesheet note formatted as 1 to 2 lines of continuous prose without bullets (approx 80-180 characters). Must be clear, direct, and explain WHAT was delivered or fixed and its operational benefit.";
+
+    const descRulePt =
+      descriptionFormat === 'bullets'
+        ? "3. 'businessDescription': Uma nota de timesheet executiva formatada em tópicos objetivos iniciados por '• ' (ex: '• Integração do motor de regras DHIS2 na modal.\\n• Padronização da validação de formulários.'). 1 a 2 tópicos concisos."
+        : "3. 'businessDescription': Uma nota de timesheet executiva formatada como texto corrido de 1 a 2 linhas sem tópicos (cerca de 80 a 180 caracteres). Deve ser clara, direta e explicar O QUE foi entregue ou corrigido e o benefício operacional.";
+
     const systemPrompt = isEnglish
       ? `You are a Principal Technical Lead and Senior Project Manager creating formal Harvest timesheet entries.
 Your task is to convert EACH software commit into its OWN individual executive Harvest timesheet task (1-to-1 mapping: 1 commit = 1 task).
@@ -127,11 +138,10 @@ Write exclusively in professional, corporate ENGLISH suitable for client timeshe
 Mandatory transformation rules:
 1. 1 COMMIT = 1 TASK. For every commit provided in the input, output exactly one corresponding task object. Do NOT merge different commits together.
 2. 'businessTitle': A concise, corporate title focused on user value or business deliverable (e.g. "Event Details Modal & Interactive Row-Click Integration", "DHIS2 Rules Engine Integration in Event Modal").
-3. 'businessDescription': An elevated, professional Harvest timesheet note.
-   CRITICAL CONSTRAINT: Must be SHORT, varying between 1 and 2 lines (approx 80-180 characters). Must be clear, direct, and explain WHAT was delivered or fixed and its operational benefit without fluff or unnecessary details.
+${descRuleEn}
 4. 'spentDate': Must strictly match the commit's exact author date (YYYY-MM-DD).
 5. 'sourceCommitShas': Array with exactly this commit's 7-character SHA.
-6. 'suggestedHours': Realistic hour estimate based on technical complexity and scope. Commits on the same date must be calibrated so their daily sum reaches approximately 8.0 hours (a standard workday). Complex features/architecture take 2.0 to 4.0h, moderate fixes/integrations take 1.0 to 2.0h, and minor chores/styling/renaming take 0.25 to 0.75h. Must be multiples of 0.25.
+6. 'suggestedHours': Highly dynamic and realistic hour estimate reflecting the exact technical effort. Does NOT need to be an integer (e.g. 0.25 for 15m, 0.75 for 45m, 1.43 for 1h26m, 1.5 for 1h30m, 2.25 for 2h15m). Commits on the same date should collectively calibrate towards ~8.0 hours for a full workday.
 7. Return only the strict JSON array schema requested.`
       : `Você é um Principal Technical Lead e Gestor de Projetos sénior a gerar notas de timesheet para o Harvest.
 A sua tarefa é converter CADA commit de software na sua PRÓPRIA tarefa executiva individual para o Harvest (relação 1 para 1: 1 commit = 1 tarefa).
@@ -140,11 +150,10 @@ Escreva exclusivamente em PORTUGUÊS formal e profissional adequado para relató
 Regras obrigatórias de transformação:
 1. 1 COMMIT = 1 TAREFA. Para cada commit fornecido na entrada, gere exatamente um objeto de tarefa correspondente. NÃO junte commits diferentes numa única tarefa.
 2. 'businessTitle': Título conciso, corporativo e com foco no utilizador ou na funcionalidade entregue.
-3. 'businessDescription': Uma nota de timesheet executiva formatada para o Harvest.
-   RESTRIÇÃO CRÍTICA: Deve ser CURTA, variando entre 1 a 2 linhas (cerca de 80 a 180 caracteres). Deve ser clara, direta e explicar O QUE foi entregue ou corrigido e o benefício operacional, sem rodeios nem parágrafos longos.
+${descRulePt}
 4. 'spentDate': Deve corresponder estritamente à data exata do commit (formato YYYY-MM-DD).
 5. 'sourceCommitShas': Array contendo apenas o SHA de 7 caracteres deste commit.
-6. 'suggestedHours': Estimativa realista de horas com base na complexidade e escopo técnico. Os commits na mesma data devem ser calibrados de modo a que a soma diária alcance aproximadamente 8.0 horas (uma jornada de trabalho padrão). Funcionalidades complexas/arquitetura levam 2.0 a 4.0h, correções/integrações médias levam 1.0 a 2.0h, e ajustes menores/estilo/renomeações levam 0.25 a 0.75h. Deve ser múltiplo de 0.25.
+6. 'suggestedHours': Estimativa de horas super dinâmica e realista com base no esforço real. NÃO precisa de ser um número inteiro (ex: 0.25 para 15m, 0.75 para 45m, 1.43 para 1h26m, 1.5 para 1h30m, 2.25 para 2h15m). Commits da mesma data devem calibrar no conjunto para ~8.0 horas na jornada diária.
 7. Retorne apenas o schema JSON estrito solicitado.`;
 
     const userPrompt = isEnglish
@@ -323,20 +332,32 @@ Return only the strict JSON array schema requested.`;
     taskTitle: string,
     currentDescription: string,
     commitMessages: string[],
-    language: 'en' | 'pt' = 'en'
+    language: 'en' | 'pt' = 'en',
+    descriptionFormat: 'paragraph' | 'bullets' = 'paragraph'
   ): Promise<{ businessTitle: string; businessDescription: string }> {
     if (!this.apiKey) {
       throw new Error('Chave Gemini API ausente.');
     }
 
     const isEnglish = language === 'en';
+
+    const descRuleEn =
+      descriptionFormat === 'bullets'
+        ? "3. 'businessDescription': Clear, professional Harvest timesheet note formatted as 1 to 2 concise bullet points starting with '• '. Explain WHAT was built or fixed and the direct operational benefit without fluff."
+        : "3. 'businessDescription': Clear, professional Harvest timesheet note formatted as 1 to 2 lines of continuous prose without bullets (approx 80-180 characters). Explain WHAT was built or fixed and the direct operational benefit without fluff.";
+
+    const descRulePt =
+      descriptionFormat === 'bullets'
+        ? "3. 'businessDescription': Nota de timesheet clara e executiva para o Harvest formatada em 1 a 2 tópicos concisos iniciados por '• '. Explique O QUE foi construído ou corrigido e o BENEFÍCIO REAL."
+        : "3. 'businessDescription': Nota de timesheet clara e executiva para o Harvest em texto corrido de 1 a 2 linhas sem tópicos (cerca de 80 a 180 caracteres). Explique O QUE foi construído ou corrigido e o BENEFÍCIO REAL.";
+
     const systemPrompt = isEnglish
       ? `You are an elite Principal Technical Product Lead and executive writer.
 Your job is to read raw Git commit messages and elevate them into a pristine, executive-level timesheet description and title in corporate ENGLISH.
 CRITICAL MANDATORY RULES:
 1. Thoroughly read each commit message and body. Identify the specific feature, bug fix, or refactoring.
 2. 'businessTitle': A concise, corporate title focused on user value (e.g. "Event Details Modal & Interactive Row-Click Integration").
-3. 'businessDescription': Clear, professional Harvest timesheet note. CRITICAL CONSTRAINT: Must be SHORT: between 1 and 2 lines (approx 80-180 characters). Explain WHAT was built or fixed and the direct operational benefit without fluff or unnecessary details.
+${descRuleEn}
 4. FORBIDDEN: NEVER use generic boilerplate or placeholder text like "Completed core implementation and functional adjustments based on commits" or "stabilizing business rules and user-facing workflows".
 5. Return strictly a JSON object with 'businessTitle' and 'businessDescription'.`
       : `Você é um Principal Technical Product Lead e redator executivo de topo.
@@ -344,7 +365,7 @@ O seu trabalho é ler as mensagens originais de commit do Git e elevá-las para 
 REGRAS CRÍTICAS OBRIGATÓRIAS:
 1. Leia atentamente cada commit. Identifique a funcionalidade específica, correção ou melhoria.
 2. 'businessTitle': Título conciso e corporativo com foco no utilizador ou negócio.
-3. 'businessDescription': Nota de timesheet clara e executiva para o Harvest. RESTRIÇÃO CRÍTICA: Deve ser CURTA, variando entre 1 a 2 linhas (cerca de 80 a 180 caracteres). Explique O QUE foi construído ou corrigido e o BENEFÍCIO REAL para os utilizadores, sem rodeios.
+${descRulePt}
 4. PROIBIDO: NUNCA utilize frases genéricas ou templates repetitivos como "Completed core implementation" ou "Implementação e validação de requisitos técnicos para X commits".
 5. Retorne estritamente um objeto JSON com 'businessTitle' e 'businessDescription'.`;
 
