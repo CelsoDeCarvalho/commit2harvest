@@ -2,11 +2,76 @@ import { GeminiTaskItem, GitHubCommit } from '../types';
 
 export class GeminiService {
   private apiKey: string;
-  private primaryModel = 'gemini-2.5-flash';
-  private fallbackModel = 'gemini-1.5-flash';
+  private cachedModel: string | null = null;
+  private defaultModel = 'gemini-2.0-flash';
 
   constructor(apiKey: string) {
     this.apiKey = apiKey.trim();
+  }
+
+  /**
+   * Dynamically query Google's ModelService.ListModels to discover
+   * the exact models currently active and supported by this API key.
+   */
+  async getBestAvailableModel(): Promise<string> {
+    if (this.cachedModel) return this.cachedModel;
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const availableModels: string[] = (data.models || [])
+          .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+          .map((m: any) => (m.name || '').replace(/^models\//, ''))
+          .filter(Boolean);
+
+        // Priorities in order of preference
+        const priorities = [
+          'gemini-2.0-flash',
+          'gemini-2.0-flash-exp',
+          'gemini-1.5-flash',
+          'gemini-1.5-flash-latest',
+          'gemini-2.0-flash-lite',
+          'gemini-2.0-flash-lite-preview-02-05',
+          'gemini-1.5-flash-8b',
+          'gemini-1.5-pro',
+          'gemini-pro',
+        ];
+
+        for (const preferred of priorities) {
+          const match = availableModels.find((m) => m === preferred || m.startsWith(preferred));
+          if (match) {
+            this.cachedModel = match;
+            return match;
+          }
+        }
+
+        const anyFlash = availableModels.find((m) => m.includes('flash'));
+        if (anyFlash) {
+          this.cachedModel = anyFlash;
+          return anyFlash;
+        }
+
+        const anyGemini = availableModels.find((m) => m.includes('gemini'));
+        if (anyGemini) {
+          this.cachedModel = anyGemini;
+          return anyGemini;
+        }
+
+        if (availableModels.length > 0) {
+          this.cachedModel = availableModels[0];
+          return availableModels[0];
+        }
+      }
+    } catch (err) {
+      console.warn('Could not list Gemini models:', err);
+    }
+
+    this.cachedModel = this.defaultModel;
+    return this.defaultModel;
   }
 
   async testConnection(): Promise<{ success: boolean; modelName?: string; error?: string }> {
@@ -15,17 +80,8 @@ export class GeminiService {
         return { success: false, error: 'Chave Gemini API não fornecida' };
       }
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const errorMsg = errorData?.error?.message || response.statusText;
-        return { success: false, error: `Falha na autenticação Gemini: ${errorMsg}` };
-      }
-
-      return { success: true, modelName: this.primaryModel };
+      const model = await this.getBestAvailableModel();
+      return { success: true, modelName: model };
     } catch (err: any) {
       return { success: false, error: err.message || 'Erro de rede ao conectar à API Gemini' };
     }
@@ -132,12 +188,8 @@ Agrupe os commits lógicos e gere as tarefas em formato JSON conforme o schema.`
       },
     };
 
-    // Try primary model, fallback to alternative if 404/not available
-    let response = await this.callGeminiApi(this.primaryModel, payload);
-    if (!response.ok && (response.status === 404 || response.status === 400)) {
-      console.warn(`Model ${this.primaryModel} failed with ${response.status}, attempting ${this.fallbackModel}...`);
-      response = await this.callGeminiApi(this.fallbackModel, payload);
-    }
+    // Execute request with dynamic model discovery and fallback
+    const response = await this.executeWithModelFallback(payload);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -218,10 +270,8 @@ Return only the strict JSON array schema requested.`;
       },
     };
 
-    let response = await this.callGeminiApi(this.primaryModel, payload);
-    if (!response.ok && (response.status === 404 || response.status === 400)) {
-      response = await this.callGeminiApi(this.fallbackModel, payload);
-    }
+    // Execute translation request with dynamic model discovery and fallback
+    const response = await this.executeWithModelFallback(payload);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -258,9 +308,55 @@ Return only the strict JSON array schema requested.`;
     throw new Error('Falha ao traduzir tarefa.');
   }
 
+  private async executeWithModelFallback(payload: any): Promise<Response> {
+    const primary = await this.getBestAvailableModel();
+    let response = await this.callGeminiApi(primary, payload);
+
+    if (!response.ok && (response.status === 404 || response.status === 400)) {
+      console.warn(`Gemini model ${primary} failed (${response.status}), attempting fallback models...`);
+
+      const candidateModels = [
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-2.0-flash-lite',
+        'gemini-1.5-pro',
+        'gemini-pro',
+      ].filter((m) => m !== primary);
+
+      for (const fallback of candidateModels) {
+        response = await this.callGeminiApi(fallback, payload);
+        if (response.ok) {
+          this.cachedModel = fallback;
+          console.info(`Gemini successfully switched to model: ${fallback}`);
+          return response;
+        }
+      }
+
+      // Also attempt v1 endpoint if v1beta returned 404
+      for (const fallback of ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']) {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1/models/${fallback}:generateContent?key=${this.apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (response.ok) {
+          this.cachedModel = fallback;
+          return response;
+        }
+      }
+    }
+
+    return response;
+  }
+
   private async callGeminiApi(model: string, body: any): Promise<Response> {
+    const cleanModel = model.replace(/^models\//, '');
     return fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${this.apiKey}`,
       {
         method: 'POST',
         headers: {

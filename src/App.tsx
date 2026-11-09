@@ -499,7 +499,7 @@ export function App() {
       'info',
       `A enviar ${selectedCommits.length} commits para agrupamento e tradução com Gemini AI...`,
       undefined,
-      'POST /gemini-2.5-flash'
+      'POST /gemini'
     );
 
     try {
