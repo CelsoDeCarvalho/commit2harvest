@@ -71,6 +71,15 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
   const totalHours = tasks.reduce((acc, t) => acc + (Number(t.hours) || 0), 0);
   const syncedTasksCount = tasks.filter((t) => t.syncStatus === 'synced').length;
 
+  const dailyHoursMap = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of tasks) {
+      const d = t.spentDate || 'unknown';
+      map.set(d, (map.get(d) || 0) + (Number(t.hours) || 0));
+    }
+    return map;
+  }, [tasks]);
+
   return (
     <main className="w-full lg:w-7/12 bg-[#0d1117] flex flex-col h-full overflow-hidden select-none">
       {/* Pane Section Header */}
@@ -328,6 +337,25 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                         className="bg-transparent text-[#e6edf3] text-xs font-mono w-28 outline-none"
                       />
                     </div>
+
+                    {/* Day total indicator */}
+                    {task.spentDate && (
+                      <span
+                        className="text-[10px] font-mono px-1.5 py-0.5 border border-[#30363d] bg-[#0d1117] text-[#8b949e] shrink-0"
+                        title={`Total somado para ${task.spentDate}: ${(dailyHoursMap.get(task.spentDate) || 0).toFixed(2)}h (Meta: 8.00h)`}
+                      >
+                        Dia:{' '}
+                        <span
+                          className={
+                            Math.abs((dailyHoursMap.get(task.spentDate) || 0) - 8.0) <= 0.25
+                              ? 'text-[#238636] font-semibold'
+                              : 'text-[#ff6c37] font-semibold'
+                          }
+                        >
+                          {(dailyHoursMap.get(task.spentDate) || 0).toFixed(2)}h
+                        </span>
+                      </span>
+                    )}
 
                     {/* Hours Input */}
                     <div className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] px-1.5 py-0.5">

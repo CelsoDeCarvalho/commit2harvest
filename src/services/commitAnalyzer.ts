@@ -325,6 +325,201 @@ export function generateElevatedDescription(
 }
 
 /**
+ * Evaluates the technical complexity and effort weight of a commit
+ * Returns a weight between 0.5 (minor chore/typo) to 4.5 (major architecture/complex feature)
+ */
+export function calculateCommitComplexity(commit: GitHubCommit, parsed?: ParsedCommit): number {
+  const p = parsed || parseCommit(commit);
+  const raw = (p.rawMessage || '').toLowerCase();
+
+  let weight = 2.0;
+
+  // 1. Base weight by conventional commit type
+  switch (p.type) {
+    case 'feat':
+      weight = 3.0;
+      break;
+    case 'refactor':
+      weight = 2.5;
+      break;
+    case 'perf':
+      weight = 2.5;
+      break;
+    case 'fix':
+      weight = 1.75;
+      break;
+    case 'test':
+      weight = 1.25;
+      break;
+    case 'build':
+    case 'ci':
+      weight = 1.0;
+      break;
+    case 'chore':
+      weight = 0.8;
+      break;
+    case 'style':
+      weight = 0.6;
+      break;
+    case 'docs':
+      weight = 0.6;
+      break;
+    default:
+      weight = 2.0;
+  }
+
+  // 2. High-effort engineering indicators (+1.0 to +1.5)
+  if (
+    /\b(customdhis2rulesengine|rules engine|modal.*event|event.*modal|export.*stream|totp|multi-factor|two-factor|composite index|pipeline|database migration|schema|architecture)\b/i.test(
+      raw
+    )
+  ) {
+    weight += 1.2;
+  } else if (
+    /\b(integration|integrate|synchronize|sync|calendar|date.*filter|url param|persistence|hook|callback|generator)\b/i.test(
+      raw
+    )
+  ) {
+    weight += 0.8;
+  }
+
+  // 3. Low-effort / cosmetic indicators (-0.8 to -1.2)
+  if (
+    /\b(typo|rename|terminology|label|font weight|license|licence|debug log|clean log|d2\.config|readme)\b/i.test(
+      raw
+    )
+  ) {
+    weight -= 1.0;
+  }
+
+  // 4. Multi-line commit body indicates detailed engineering work (+0.5)
+  if (p.body && p.body.length > 50) {
+    weight += 0.6;
+  }
+
+  return Math.min(5.0, Math.max(0.5, +weight.toFixed(2)));
+}
+
+/**
+ * Calibrates tasks so that each individual workday (spentDate) targets approximately 8.0 hours.
+ * Hours are distributed proportionally to each commit's complexity weight.
+ * All hours are rounded to clean quarter-hour increments (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, etc.)
+ */
+export function calibrateDailyHours(
+  tasks: GeminiTaskItem[],
+  commits?: GitHubCommit[],
+  targetDailyHours: number = 8.0
+): GeminiTaskItem[] {
+  if (!tasks || tasks.length === 0) return [];
+
+  // Map SHAs to commits if provided
+  const commitMap = new Map<string, GitHubCommit>();
+  if (commits) {
+    for (const c of commits) {
+      commitMap.set(c.sha.substring(0, 7), c);
+      commitMap.set(c.sha, c);
+    }
+  }
+
+  // Group tasks by spentDate
+  const dayGroups = new Map<string, GeminiTaskItem[]>();
+  for (const t of tasks) {
+    const day = t.spentDate || 'unknown';
+    if (!dayGroups.has(day)) {
+      dayGroups.set(day, []);
+    }
+    dayGroups.get(day)!.push(t);
+  }
+
+  const calibratedTasks: GeminiTaskItem[] = [];
+
+  for (const [, group] of dayGroups.entries()) {
+    // If only 1 task on this day
+    if (group.length === 1) {
+      const singleTask = group[0];
+      const firstSha = singleTask.sourceCommitShas?.[0];
+      const matchingCommit = firstSha ? commitMap.get(firstSha) : undefined;
+      const weight = matchingCommit
+        ? calculateCommitComplexity(matchingCommit)
+        : singleTask.suggestedHours || 2.0;
+
+      // Single commit effort allocation for a full working day
+      let allocatedHours = 8.0;
+      if (weight <= 1.0) {
+        allocatedHours = 3.0; // minor chore/typo on its own day
+      } else if (weight <= 2.0) {
+        allocatedHours = 5.0; // standard fix
+      } else {
+        allocatedHours = 8.0; // standard full-day feature/refactor
+      }
+
+      calibratedTasks.push({
+        ...singleTask,
+        suggestedHours: allocatedHours,
+      });
+      continue;
+    }
+
+    // Multiple tasks on the same day: distribute 8.0 hours proportionally by complexity
+    const weights: number[] = group.map((task) => {
+      const firstSha = task.sourceCommitShas?.[0];
+      const matchingCommit = firstSha ? commitMap.get(firstSha) : undefined;
+      if (matchingCommit) {
+        return calculateCommitComplexity(matchingCommit);
+      }
+      return task.suggestedHours && task.suggestedHours > 0 ? task.suggestedHours : 2.0;
+    });
+
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+    // Calculate proportional raw hours for each task
+    const rawHoursList = weights.map((w) => (w / totalWeight) * targetDailyHours);
+
+    // Round to nearest quarter hour (0.25), minimum 0.25h
+    const roundedHoursList = rawHoursList.map((raw) => {
+      const quarterRounded = Math.round(raw * 4) / 4;
+      return Math.max(0.25, quarterRounded);
+    });
+
+    // Check discrepancy with targetDailyHours
+    let currentSum = roundedHoursList.reduce((acc, h) => acc + h, 0);
+    let diff = Math.round((targetDailyHours - currentSum) * 100) / 100;
+
+    // Adjust discrepancy in 0.25 steps to the highest-weight items
+    if (diff !== 0 && Math.abs(diff) < 3.0) {
+      const sortedIndices = weights
+        .map((w, idx) => ({ w, idx }))
+        .sort((a, b) => b.w - a.w)
+        .map((item) => item.idx);
+
+      let stepIndex = 0;
+      const step = diff > 0 ? 0.25 : -0.25;
+
+      while (Math.abs(diff) >= 0.24 && stepIndex < sortedIndices.length * 4) {
+        const targetIdx = sortedIndices[stepIndex % sortedIndices.length];
+        const newHour = roundedHoursList[targetIdx] + step;
+
+        if (newHour >= 0.25) {
+          roundedHoursList[targetIdx] = +(newHour.toFixed(2));
+          diff = Math.round((diff - step) * 100) / 100;
+        }
+        stepIndex++;
+      }
+    }
+
+    // Assign calibrated hours to tasks
+    group.forEach((task, idx) => {
+      calibratedTasks.push({
+        ...task,
+        suggestedHours: +(roundedHoursList[idx].toFixed(2)),
+      });
+    });
+  }
+
+  return calibratedTasks;
+}
+
+/**
  * Transforms a single GitHub commit into an individual Harvest timesheet task.
  * (1 commit = 1 task)
  */
@@ -336,17 +531,21 @@ export function analyzeCommitToTask(
   const parsed = parseCommit(commit);
   const businessTitle = generateExecutiveTitle(parsed, lang);
   const businessDescription = generateElevatedDescription([commit], lang);
+  const complexityWeight = calculateCommitComplexity(commit, parsed);
 
   // Exact commit date in YYYY-MM-DD
   const spentDate =
     commit.commit?.author?.date?.substring(0, 10) ||
     new Date().toISOString().substring(0, 10);
 
+  // Initial estimate proportional to complexity (will be calibrated by calibrateDailyHours)
+  const initialHours = Math.max(0.5, Math.min(4.0, Math.round(complexityWeight * 0.75 * 4) / 4));
+
   return {
     id: `task-ai-${Date.now()}-${idx + 1}`,
     businessTitle,
     businessDescription,
-    suggestedHours: 0.75,
+    suggestedHours: initialHours,
     spentDate,
     sourceCommitShas: [commit.sha.substring(0, 7)],
   };
@@ -354,7 +553,8 @@ export function analyzeCommitToTask(
 
 /**
  * Transforms an array of selected commits into individual Harvest timesheet tasks (1 commit = 1 task).
- * Each task accurately takes that commit's individual date and concise 1-2 line description.
+ * Each task accurately takes that commit's individual date, concise 1-2 line description,
+ * and calibrated hours targeting ~8.0h per workday.
  */
 export function analyzeCommitsToTasks(
   commits: GitHubCommit[],
@@ -363,7 +563,8 @@ export function analyzeCommitsToTasks(
   if (!commits || commits.length === 0) {
     return [];
   }
-  return commits.map((c, idx) => analyzeCommitToTask(c, lang, idx));
+  const rawTasks = commits.map((c, idx) => analyzeCommitToTask(c, lang, idx));
+  return calibrateDailyHours(rawTasks, commits);
 }
 
 // Backward-compatibility alias

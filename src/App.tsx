@@ -28,7 +28,11 @@ import { TaskWorkbench } from './components/TaskWorkbench';
 import { SettingsModal } from './components/SettingsModal';
 import { StatusBar } from './components/StatusBar';
 import { translateFallback } from './services/translationHelper';
-import { analyzeCommitsToTasks, analyzeCommitToTask } from './services/commitAnalyzer';
+import {
+  analyzeCommitsToTasks,
+  analyzeCommitToTask,
+  calibrateDailyHours,
+} from './services/commitAnalyzer';
 
 export function App() {
   // Credentials & Settings Modal
@@ -635,6 +639,8 @@ export function App() {
             selectedRepo,
             generationLanguage
           );
+          // Calibrate hours by day targeting ~8.0h per workday based on commit complexity
+          generatedItems = calibrateDailyHours(generatedItems, selectedCommits);
         } catch (apiErr: any) {
           console.warn('Gemini API call failed, falling back to smart local generator:', apiErr);
           const isQuota =

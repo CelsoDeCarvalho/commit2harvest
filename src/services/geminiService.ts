@@ -131,7 +131,7 @@ Mandatory transformation rules:
    CRITICAL CONSTRAINT: Must be SHORT, varying between 1 and 2 lines (approx 80-180 characters). Must be clear, direct, and explain WHAT was delivered or fixed and its operational benefit without fluff or unnecessary details.
 4. 'spentDate': Must strictly match the commit's exact author date (YYYY-MM-DD).
 5. 'sourceCommitShas': Array with exactly this commit's 7-character SHA.
-6. 'suggestedHours': Realistic hour estimate for this individual commit (typically 0.5, 0.75, or 1.0).
+6. 'suggestedHours': Realistic hour estimate based on technical complexity and scope. Commits on the same date must be calibrated so their daily sum reaches approximately 8.0 hours (a standard workday). Complex features/architecture take 2.0 to 4.0h, moderate fixes/integrations take 1.0 to 2.0h, and minor chores/styling/renaming take 0.25 to 0.75h. Must be multiples of 0.25.
 7. Return only the strict JSON array schema requested.`
       : `Você é um Principal Technical Lead e Gestor de Projetos sénior a gerar notas de timesheet para o Harvest.
 A sua tarefa é converter CADA commit de software na sua PRÓPRIA tarefa executiva individual para o Harvest (relação 1 para 1: 1 commit = 1 tarefa).
@@ -144,7 +144,7 @@ Regras obrigatórias de transformação:
    RESTRIÇÃO CRÍTICA: Deve ser CURTA, variando entre 1 a 2 linhas (cerca de 80 a 180 caracteres). Deve ser clara, direta e explicar O QUE foi entregue ou corrigido e o benefício operacional, sem rodeios nem parágrafos longos.
 4. 'spentDate': Deve corresponder estritamente à data exata do commit (formato YYYY-MM-DD).
 5. 'sourceCommitShas': Array contendo apenas o SHA de 7 caracteres deste commit.
-6. 'suggestedHours': Estimativa de horas para este commit individual (tipicamente 0.5, 0.75 ou 1.0).
+6. 'suggestedHours': Estimativa realista de horas com base na complexidade e escopo técnico. Os commits na mesma data devem ser calibrados de modo a que a soma diária alcance aproximadamente 8.0 horas (uma jornada de trabalho padrão). Funcionalidades complexas/arquitetura levam 2.0 a 4.0h, correções/integrações médias levam 1.0 a 2.0h, e ajustes menores/estilo/renomeações levam 0.25 a 0.75h. Deve ser múltiplo de 0.25.
 7. Retorne apenas o schema JSON estrito solicitado.`;
 
     const userPrompt = isEnglish
