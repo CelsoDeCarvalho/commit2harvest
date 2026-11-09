@@ -7,6 +7,7 @@ import {
   GitHubCommit,
   GitHubRepo,
   HarvestProjectAssignment,
+  GeminiTaskItem,
   TelemetryLog,
   WorkbenchTask,
 } from './types';
@@ -489,6 +490,50 @@ export function App() {
   // Check if sha is synced
   const isShaSynced = useCallback((sha: string) => syncedShas.has(sha), [syncedShas]);
 
+  // Smart local generator based on actual commit data (never leaves user blocked)
+  const generateSmartItems = useCallback(
+    (selectedCommits: GitHubCommit[], lang: 'en' | 'pt') => {
+      const isEn = lang === 'en';
+      const items: GeminiTaskItem[] = [];
+
+      // Extract details from selected commits
+      const commitShas = selectedCommits.map((c) => c.sha.substring(0, 7));
+      const firstMsg = selectedCommits[0]?.commit?.message?.split('\n')[0] || '';
+
+      const cleanTitle = firstMsg
+        .replace(/^(feat|fix|refactor|chore|perf|style|docs|test)(\([^)]+\))?:\s*/i, '')
+        .trim();
+      const formattedTitle = cleanTitle ? cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1) : '';
+
+      if (isEn) {
+        items.push({
+          id: `task-ai-${Date.now()}-1`,
+          businessTitle: formattedTitle
+            ? `${formattedTitle} & Business Logic Enhancements`
+            : 'Platform Engineering & Workflow Optimizations',
+          businessDescription: `Completed core implementation and functional adjustments based on ${selectedCommits.length} commit(s), stabilizing business rules and user-facing workflows.`,
+          suggestedHours: Math.min(8.0, Math.max(0.5, +(selectedCommits.length * 0.75).toFixed(2))),
+          spentDate: dateRange.endDate,
+          sourceCommitShas: commitShas,
+        });
+      } else {
+        items.push({
+          id: `task-ai-${Date.now()}-1`,
+          businessTitle: formattedTitle
+            ? `${formattedTitle} e Melhorias Operacionais`
+            : 'Desenvolvimento e Manutenção Evolutiva da Plataforma',
+          businessDescription: `Implementação e validação de requisitos técnicos para ${selectedCommits.length} commit(s), assegurando estabilidade, regras de negócio e fiabilidade operacional.`,
+          suggestedHours: Math.min(8.0, Math.max(0.5, +(selectedCommits.length * 0.75).toFixed(2))),
+          spentDate: dateRange.endDate,
+          sourceCommitShas: commitShas,
+        });
+      }
+
+      return items;
+    },
+    [dateRange.endDate]
+  );
+
   // Transform with Gemini Action
   const handleTransformWithGemini = async () => {
     const selectedCommits = commits.filter((c) => selectedCommitShas.has(c.sha));
@@ -503,111 +548,35 @@ export function App() {
     );
 
     try {
-      let generatedItems;
+      let generatedItems: GeminiTaskItem[];
 
       if (!isDemoMode && credentials.geminiApiKey) {
-        const gemini = new GeminiService(credentials.geminiApiKey);
-        generatedItems = await gemini.transformCommitsToTasks(
-          selectedCommits,
-          selectedRepo,
-          generationLanguage
-        );
-      } else {
-        // Fallback intelligent simulation
-        await new Promise((r) => setTimeout(r, 900));
-
-        // Group into 2 realistic executive tasks
-        const exportCommits = selectedCommits.filter(
-          (c) => c.commit.message.includes('export') || c.commit.message.includes('filter')
-        );
-        const securityCommits = selectedCommits.filter(
-          (c) =>
-            c.commit.message.includes('auth') ||
-            c.commit.message.includes('deps') ||
-            c.commit.message.includes('perf')
-        );
-
-        generatedItems = [];
-
-        if (generationLanguage === 'en') {
-          if (exportCommits.length > 0 || selectedCommits.length <= 2) {
-            const sourceShas = (exportCommits.length > 0 ? exportCommits : selectedCommits).map(
-              (c) => c.sha.substring(0, 7)
-            );
-            generatedItems.push({
-              id: `task-ai-${Date.now()}-1`,
-              businessTitle: 'Data Export Module & Report Streaming Optimization',
-              businessDescription:
-                'Implemented bulk Excel streaming export handlers and organizational unit filter validation to ensure system reliability under large datasets.',
-              suggestedHours: 2.5,
-              spentDate: dateRange.endDate,
-              sourceCommitShas: sourceShas,
-            });
-          }
-
-          if (securityCommits.length > 0 && selectedCommits.length > 2) {
-            generatedItems.push({
-              id: `task-ai-${Date.now()}-2`,
-              businessTitle: 'Security Hardening & Session Access Control',
-              businessDescription:
-                'Integrated two-factor authentication (TOTP) into the login pipeline and proactively upgraded dependencies to meet security compliance standards.',
-              suggestedHours: 2.0,
-              spentDate: dateRange.startDate,
-              sourceCommitShas: securityCommits.map((c) => c.sha.substring(0, 7)),
-            });
-          }
-
-          if (generatedItems.length === 0) {
-            generatedItems.push({
-              id: `task-ai-${Date.now()}-1`,
-              businessTitle: 'Continuous System Engineering & Defect Resolution',
-              businessDescription:
-                'Ongoing platform enhancements, verification of core business rules, and technical resolution of operational anomalies.',
-              suggestedHours: 1.5,
-              spentDate: dateRange.endDate,
-              sourceCommitShas: selectedCommits.map((c) => c.sha.substring(0, 7)),
-            });
-          }
-        } else {
-          if (exportCommits.length > 0 || selectedCommits.length <= 2) {
-            const sourceShas = (exportCommits.length > 0 ? exportCommits : selectedCommits).map(
-              (c) => c.sha.substring(0, 7)
-            );
-            generatedItems.push({
-              id: `task-ai-${Date.now()}-1`,
-              businessTitle: 'Módulo de Exportação de Dados e Otimização de Relatórios',
-              businessDescription:
-                'Implementação do mecanismo de exportação em lote para formato Excel e correção nos filtros de unidades organizacionais, garantindo maior estabilidade no processamento de grandes volumes.',
-              suggestedHours: 2.5,
-              spentDate: dateRange.endDate,
-              sourceCommitShas: sourceShas,
-            });
-          }
-
-          if (securityCommits.length > 0 && selectedCommits.length > 2) {
-            generatedItems.push({
-              id: `task-ai-${Date.now()}-2`,
-              businessTitle: 'Melhorias de Segurança e Controlo de Acessos',
-              businessDescription:
-                'Integração de verificação em duas etapas (TOTP) no fluxo de autenticação e atualização preventiva de dependências para reforço dos padrões de segurança.',
-              suggestedHours: 2.0,
-              spentDate: dateRange.startDate,
-              sourceCommitShas: securityCommits.map((c) => c.sha.substring(0, 7)),
-            });
-          }
-
-          if (generatedItems.length === 0) {
-            generatedItems.push({
-              id: `task-ai-${Date.now()}-1`,
-              businessTitle: 'Manutenção Evolutiva e Correções no Sistema',
-              businessDescription:
-                'Desenvolvimento de melhorias contínuas, validação de regras de negócio e triagem de anomalias operacionais.',
-              suggestedHours: 1.5,
-              spentDate: dateRange.endDate,
-              sourceCommitShas: selectedCommits.map((c) => c.sha.substring(0, 7)),
-            });
-          }
+        try {
+          const gemini = new GeminiService(credentials.geminiApiKey);
+          generatedItems = await gemini.transformCommitsToTasks(
+            selectedCommits,
+            selectedRepo,
+            generationLanguage
+          );
+        } catch (apiErr: any) {
+          console.warn('Gemini API call failed, falling back to smart local generator:', apiErr);
+          const isQuota =
+            apiErr.message?.toLowerCase().includes('quota') ||
+            apiErr.message?.includes('429') ||
+            apiErr.message?.includes('limit: 0');
+          addLog(
+            'warn',
+            isQuota
+              ? 'Quota gratuita da API Gemini atingida para o modelo selecionado. Tarefa gerada automaticamente em inglês com o motor contextual.'
+              : `Aviso Gemini (${apiErr.message.slice(0, 80)}...). Tarefa gerada pelo motor inteligente.`,
+            429,
+            'AI_FALLBACK'
+          );
+          generatedItems = generateSmartItems(selectedCommits, generationLanguage);
         }
+      } else {
+        await new Promise((r) => setTimeout(r, 600));
+        generatedItems = generateSmartItems(selectedCommits, generationLanguage);
       }
 
       // Check if current repository has default mapping
@@ -827,12 +796,21 @@ export function App() {
 
     try {
       if (!isDemoMode && credentials.geminiApiKey) {
-        const gemini = new GeminiService(credentials.geminiApiKey);
-        const translated = await gemini.translateTask(task, target);
-        handleUpdateTask(taskId, {
-          businessTitle: translated.businessTitle,
-          businessDescription: translated.businessDescription,
-        });
+        try {
+          const gemini = new GeminiService(credentials.geminiApiKey);
+          const translated = await gemini.translateTask(task, target);
+          handleUpdateTask(taskId, {
+            businessTitle: translated.businessTitle,
+            businessDescription: translated.businessDescription,
+          });
+        } catch (apiErr: any) {
+          console.warn('Gemini translation API failed, using fallback:', apiErr);
+          const translated = translateFallback(task.businessTitle, task.businessDescription, target);
+          handleUpdateTask(taskId, {
+            businessTitle: translated.title,
+            businessDescription: translated.description,
+          });
+        }
       } else {
         await new Promise((r) => setTimeout(r, 400));
         const translated = translateFallback(task.businessTitle, task.businessDescription, target);
@@ -849,7 +827,6 @@ export function App() {
       );
     } catch (err: any) {
       addLog('error', `Falha ao traduzir: ${err.message}`, 500, 'TRANSLATE_ERROR');
-      alert(`Erro na tradução: ${err.message}`);
     } finally {
       setTranslatingTaskId(null);
     }
@@ -869,20 +846,38 @@ export function App() {
 
     try {
       if (!isDemoMode && credentials.geminiApiKey) {
-        const gemini = new GeminiService(credentials.geminiApiKey);
-        const translatedBatch = await gemini.translateTasks(tasks, targetLanguage);
-        setTasks((prev) =>
-          prev.map((t) => {
-            const match = translatedBatch.find((res) => res.id === t.id);
-            return match
-              ? {
-                  ...t,
-                  businessTitle: match.businessTitle,
-                  businessDescription: match.businessDescription,
-                }
-              : t;
-          })
-        );
+        try {
+          const gemini = new GeminiService(credentials.geminiApiKey);
+          const translatedBatch = await gemini.translateTasks(tasks, targetLanguage);
+          setTasks((prev) =>
+            prev.map((t) => {
+              const match = translatedBatch.find((res) => res.id === t.id);
+              return match
+                ? {
+                    ...t,
+                    businessTitle: match.businessTitle,
+                    businessDescription: match.businessDescription,
+                  }
+                : t;
+            })
+          );
+        } catch (apiErr: any) {
+          console.warn('Gemini batch translation API failed, using fallback:', apiErr);
+          setTasks((prev) =>
+            prev.map((t) => {
+              const translated = translateFallback(
+                t.businessTitle,
+                t.businessDescription,
+                targetLanguage
+              );
+              return {
+                ...t,
+                businessTitle: translated.title,
+                businessDescription: translated.description,
+              };
+            })
+          );
+        }
       } else {
         await new Promise((r) => setTimeout(r, 500));
         setTasks((prev) =>
@@ -908,7 +903,6 @@ export function App() {
       );
     } catch (err: any) {
       addLog('error', `Falha na tradução em lote: ${err.message}`, 500, 'TRANSLATE_ERROR');
-      alert(`Erro na tradução em lote: ${err.message}`);
     } finally {
       setIsTranslatingAll(false);
     }

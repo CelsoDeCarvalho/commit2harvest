@@ -12,6 +12,7 @@ export class GeminiService {
   /**
    * Dynamically query Google's ModelService.ListModels to discover
    * the exact models currently active and supported by this API key.
+   * Explicitly prioritizes Free Tier FLASH models (avoiding Pro models with limit: 0).
    */
   async getBestAvailableModel(): Promise<string> {
     if (this.cachedModel) return this.cachedModel;
@@ -28,20 +29,19 @@ export class GeminiService {
           .map((m: any) => (m.name || '').replace(/^models\//, ''))
           .filter(Boolean);
 
-        // Priorities in order of preference
-        const priorities = [
+        // Flash models prioritized for Free Tier accounts (0 RPM on Pro models)
+        const flashPriorities = [
           'gemini-2.0-flash',
-          'gemini-2.0-flash-exp',
           'gemini-1.5-flash',
-          'gemini-1.5-flash-latest',
           'gemini-2.0-flash-lite',
           'gemini-2.0-flash-lite-preview-02-05',
           'gemini-1.5-flash-8b',
-          'gemini-1.5-pro',
-          'gemini-pro',
+          'gemini-2.0-flash-exp',
+          'gemini-1.5-flash-latest',
         ];
 
-        for (const preferred of priorities) {
+        // 1. Look for known Flash models
+        for (const preferred of flashPriorities) {
           const match = availableModels.find((m) => m === preferred || m.startsWith(preferred));
           if (match) {
             this.cachedModel = match;
@@ -49,21 +49,30 @@ export class GeminiService {
           }
         }
 
-        const anyFlash = availableModels.find((m) => m.includes('flash'));
+        // 2. Look for any non-pro model containing "flash"
+        const anyFlash = availableModels.find(
+          (m) => m.toLowerCase().includes('flash') && !m.toLowerCase().includes('pro')
+        );
         if (anyFlash) {
           this.cachedModel = anyFlash;
           return anyFlash;
         }
 
-        const anyGemini = availableModels.find((m) => m.includes('gemini'));
-        if (anyGemini) {
-          this.cachedModel = anyGemini;
-          return anyGemini;
+        // 3. Any model with "flash"
+        const anyFlashGeneral = availableModels.find((m) => m.toLowerCase().includes('flash'));
+        if (anyFlashGeneral) {
+          this.cachedModel = anyFlashGeneral;
+          return anyFlashGeneral;
         }
 
+        // 4. Fallback to default
         if (availableModels.length > 0) {
-          this.cachedModel = availableModels[0];
-          return availableModels[0];
+          // Exclude experimental pro models with limit 0 if possible
+          const nonPro = availableModels.find((m) => !m.toLowerCase().includes('pro'));
+          if (nonPro) {
+            this.cachedModel = nonPro;
+            return nonPro;
+          }
         }
       }
     } catch (err) {
@@ -312,16 +321,16 @@ Return only the strict JSON array schema requested.`;
     const primary = await this.getBestAvailableModel();
     let response = await this.callGeminiApi(primary, payload);
 
-    if (!response.ok && (response.status === 404 || response.status === 400)) {
-      console.warn(`Gemini model ${primary} failed (${response.status}), attempting fallback models...`);
+    // If 404 (Not Found), 429 (Quota Exceeded / Rate Limit), 403 (Forbidden), or 400 (Bad Request)
+    if (!response.ok && [400, 403, 404, 429].includes(response.status)) {
+      console.warn(`Gemini model ${primary} returned ${response.status}, attempting Free Tier Flash fallbacks...`);
 
       const candidateModels = [
         'gemini-2.0-flash',
         'gemini-1.5-flash',
-        'gemini-1.5-flash-latest',
         'gemini-2.0-flash-lite',
-        'gemini-1.5-pro',
-        'gemini-pro',
+        'gemini-1.5-flash-8b',
+        'gemini-2.0-flash-exp',
       ].filter((m) => m !== primary);
 
       for (const fallback of candidateModels) {
@@ -333,8 +342,8 @@ Return only the strict JSON array schema requested.`;
         }
       }
 
-      // Also attempt v1 endpoint if v1beta returned 404
-      for (const fallback of ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']) {
+      // Also attempt v1 stable endpoint if v1beta failed
+      for (const fallback of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
         response = await fetch(
           `https://generativelanguage.googleapis.com/v1/models/${fallback}:generateContent?key=${this.apiKey}`,
           {
