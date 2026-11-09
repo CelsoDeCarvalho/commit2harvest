@@ -9,6 +9,8 @@ import {
   Database,
   ChevronDown,
   Check,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -19,6 +21,8 @@ interface TopBarProps {
   activePresetText?: string;
   isDemoMode: boolean;
   onToggleDemoMode: () => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
 const PRESET_OPTIONS: { key: DateRangePreset; label: string; description?: string }[] = [
@@ -39,6 +43,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   activePresetText,
   isDemoMode,
   onToggleDemoMode,
+  theme = 'dark',
+  onToggleTheme,
 }) => {
   const [isRangeMenuOpen, setIsRangeMenuOpen] = useState(false);
   const rangeMenuRef = useRef<HTMLDivElement>(null);
@@ -308,6 +314,27 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span>HV</span>
           </div>
         </div>
+
+        {/* Light / Dark Mode Toggle Button */}
+        {onToggleTheme && (
+          <button
+            onClick={onToggleTheme}
+            className="flex items-center space-x-1.5 px-2 py-1 text-xs font-mono text-[#8b949e] hover:text-[#e6edf3] bg-[#21262d] border border-[#30363d] hover:bg-[#30363d] hover:border-[#8b949e] transition-colors"
+            title={theme === 'dark' ? 'Mudar para Light Mode (Claro)' : 'Mudar para Dark Mode (Escuro)'}
+          >
+            {theme === 'dark' ? (
+              <>
+                <Sun className="w-3.5 h-3.5 text-[#ff6c37]" />
+                <span className="hidden sm:inline text-[11px] font-semibold text-[#e6edf3]">LIGHT</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-3.5 h-3.5 text-[#ff6c37]" />
+                <span className="hidden sm:inline text-[11px] font-semibold text-[#e6edf3]">DARK</span>
+              </>
+            )}
+          </button>
+        )}
 
         {/* Square Settings Button */}
         <button

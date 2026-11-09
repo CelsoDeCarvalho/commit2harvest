@@ -54,6 +54,25 @@ export function App() {
     storageService.getGithubUser()
   );
 
+  // Theme State ('dark' | 'light')
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => storageService.getTheme());
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.remove('dark');
+      root.classList.add('light');
+    } else {
+      root.classList.remove('light');
+      root.classList.add('dark');
+    }
+    storageService.saveTheme(theme);
+  }, [theme]);
+
+  const handleToggleTheme = useCallback((newTheme?: 'dark' | 'light') => {
+    setTheme((prev) => (newTheme ? newTheme : prev === 'dark' ? 'light' : 'dark'));
+  }, []);
+
   // Author to filter commits by (defaults to authenticated GitHub user)
   const effectiveAuthor = useMemo(() => {
     if (credentials.githubAuthorFilter?.trim()) {
@@ -1236,6 +1255,8 @@ export function App() {
         activePresetText={activePresetText}
         isDemoMode={isDemoMode}
         onToggleDemoMode={handleToggleDemoMode}
+        theme={theme}
+        onToggleTheme={() => handleToggleTheme()}
       />
 
       {/* Main Split-Pane Workbench (100vh - 48px - 28px) */}
@@ -1320,6 +1341,8 @@ export function App() {
         syncedCount={syncedShas.size}
         settings={appSettings}
         onSaveSettings={handleSaveAppSettings}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
     </div>
   );

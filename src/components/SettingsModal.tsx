@@ -15,6 +15,8 @@ import {
   Clock,
   Sliders,
   AlignLeft,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -29,6 +31,8 @@ interface SettingsModalProps {
   syncedCount: number;
   settings: AppSettings;
   onSaveSettings: (settings: AppSettings) => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: (theme: 'dark' | 'light') => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -43,6 +47,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   syncedCount,
   settings,
   onSaveSettings,
+  theme = 'dark',
+  onToggleTheme,
 }) => {
   const [formData, setFormData] = useState<ApiCredentials>(credentials);
   const [settingsData, setSettingsData] = useState<AppSettings>(settings);
@@ -112,7 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'
             }`}
           >
-            Notas & Formato
+            Aparência & Formato
           </button>
           <button
             onClick={() => setActiveTab('storage')}
@@ -299,8 +305,67 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           ) : activeTab === 'formatting' ? (
             <div className="space-y-5">
+              {/* Theme / Appearance Selection */}
+              {onToggleTheme && (
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center space-x-1.5">
+                    {theme === 'dark' ? (
+                      <Moon className="w-3.5 h-3.5 text-[#ff6c37]" />
+                    ) : (
+                      <Sun className="w-3.5 h-3.5 text-[#ff6c37]" />
+                    )}
+                    <span>Tema da Interface (Aparência)</span>
+                  </label>
+                  <p className="text-[11px] text-[#8b949e]">
+                    Alterne entre o tema escuro de alta densidade (Dark Mode) e o tema claro com contraste nítido (Light Mode).
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => onToggleTheme('dark')}
+                      className={`flex items-start space-x-2.5 p-3 border text-left transition-colors ${
+                        theme === 'dark'
+                          ? 'border-[#ff6c37] bg-[#ff6c37]/10'
+                          : 'border-[#30363d] bg-[#0d1117] hover:border-[#8b949e]'
+                      }`}
+                    >
+                      <Moon className="w-4 h-4 text-[#ff6c37] shrink-0 mt-0.5" />
+                      <div>
+                        <div className="text-xs font-semibold text-[#e6edf3]">
+                          Modo Escuro (Dark Mode)
+                        </div>
+                        <div className="text-[10px] text-[#8b949e] mt-0.5">
+                          Ambiente de trabalho escuro clássico estilo Postman & GitHub Dark.
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onToggleTheme('light')}
+                      className={`flex items-start space-x-2.5 p-3 border text-left transition-colors ${
+                        theme === 'light'
+                          ? 'border-[#ff6c37] bg-[#ff6c37]/10'
+                          : 'border-[#30363d] bg-[#0d1117] hover:border-[#8b949e]'
+                      }`}
+                    >
+                      <Sun className="w-4 h-4 text-[#ff6c37] shrink-0 mt-0.5" />
+                      <div>
+                        <div className="text-xs font-semibold text-[#e6edf3]">
+                          Modo Claro (Light Mode)
+                        </div>
+                        <div className="text-[10px] text-[#8b949e] mt-0.5">
+                          Ambiente de trabalho claro de alto contraste estilo GitHub Primer Light.
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Description Style */}
-              <div className="space-y-2">
+              <div className={`space-y-2 ${onToggleTheme ? 'pt-2 border-t border-[#30363d]' : ''}`}>
                 <label className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center space-x-1.5">
                   <FileText className="w-3.5 h-3.5 text-[#ff6c37]" />
                   <span>Formato da Descrição das Tarefas</span>

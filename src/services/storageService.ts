@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   LAST_REPO: 'c2h_last_repo',
   LAST_BRANCH: 'c2h_last_branch',
   GITHUB_USER: 'c2h_github_user',
+  THEME: 'c2h_theme',
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -148,6 +149,26 @@ export const storageService = {
       localStorage.setItem(STORAGE_KEYS.APP_SETTINGS, JSON.stringify(settings));
     } catch (e) {
       console.warn('Failed to save app settings to localStorage', e);
+    }
+  },
+
+  getTheme(): 'dark' | 'light' {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.THEME);
+      if (stored === 'light' || stored === 'dark') {
+        return stored;
+      }
+      return 'dark';
+    } catch {
+      return 'dark';
+    }
+  },
+
+  saveTheme(theme: 'dark' | 'light'): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.THEME, theme);
+    } catch (e) {
+      console.warn('Failed to save theme to localStorage', e);
     }
   },
 };

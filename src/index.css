@@ -41,3 +41,164 @@ input:focus, select:focus, textarea:focus {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ==========================================================================
+   Commit2Harvest Light Mode Theme (GitHub Primer Light Palette)
+   ========================================================================== */
+html.light {
+  color-scheme: light;
+}
+
+html.light body,
+html.light #root {
+  background-color: #f6f8fa !important;
+  color: #1f2328 !important;
+}
+
+/* Base Surfaces & Backgrounds */
+html.light .bg-\[\#0d1117\] {
+  background-color: #f6f8fa !important;
+}
+html.light .bg-\[\#161b22\] {
+  background-color: #ffffff !important;
+}
+html.light .bg-\[\#161b22\]\/90 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+html.light .bg-\[\#1f242c\] {
+  background-color: #f6f8fa !important;
+}
+html.light .bg-\[\#21262d\] {
+  background-color: #eff1f3 !important;
+}
+html.light .bg-\[\#30363d\] {
+  background-color: #e1e4e8 !important;
+}
+
+/* Hover Backgrounds */
+html.light .hover\:bg-\[\#1f242c\]\/60:hover,
+html.light .hover\:bg-\[\#1f242c\]\/70:hover {
+  background-color: rgba(234, 238, 242, 0.85) !important;
+}
+html.light .hover\:bg-\[\#21262d\]:hover {
+  background-color: #e1e4e8 !important;
+}
+html.light .hover\:bg-\[\#30363d\]:hover {
+  background-color: #d0d7de !important;
+}
+
+/* Borders & Dividers */
+html.light .border-\[\#30363d\] {
+  border-color: #d0d7de !important;
+}
+html.light .border-\[\#8b949e\] {
+  border-color: #8c959f !important;
+}
+html.light .hover\:border-\[\#30363d\]:hover {
+  border-color: #afb8c1 !important;
+}
+html.light .hover\:border-\[\#8b949e\]:hover {
+  border-color: #57606a !important;
+}
+html.light .divide-\[\#30363d\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #d0d7de !important;
+}
+html.light .divide-\[\#30363d\]\/30 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-\[\#30363d\]\/50 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-\[\#30363d\]\/60 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e1e4e8 !important;
+}
+
+/* Typography & Contrast */
+html.light .text-\[\#e6edf3\] {
+  color: #1f2328 !important;
+}
+html.light .text-\[\#8b949e\] {
+  color: #57606a !important;
+}
+html.light .text-\[\#484f58\] {
+  color: #8c959f !important;
+}
+html.light .text-\[\#30363d\] {
+  color: #afb8c1 !important;
+}
+html.light .text-\[\#2f81f7\] {
+  color: #0969da !important;
+}
+html.light .text-\[\#58a6ff\] {
+  color: #0969da !important;
+}
+html.light .text-\[\#238636\] {
+  color: #1a7f37 !important;
+}
+html.light .text-\[\#7ee787\] {
+  color: #1a7f37 !important;
+}
+html.light .text-\[\#f85149\] {
+  color: #cf222e !important;
+}
+html.light .text-\[\#d29922\] {
+  color: #9a6700 !important;
+}
+html.light .text-\[\#ff6c37\] {
+  color: #d4430e !important;
+}
+
+/* Hover text */
+html.light .hover\:text-\[\#e6edf3\]:hover {
+  color: #1f2328 !important;
+}
+html.light .hover\:text-\[\#2f81f7\]:hover,
+html.light .hover\:text-\[\#58a6ff\]:hover {
+  color: #0969da !important;
+}
+html.light .hover\:text-\[\#f85149\]:hover {
+  color: #cf222e !important;
+}
+html.light .hover\:text-\[\#ff6c37\]:hover {
+  color: #d4430e !important;
+}
+
+/* Form Controls & Inputs */
+html.light input:not([type="checkbox"]):not([type="radio"]):not(.bg-transparent),
+html.light textarea,
+html.light select {
+  background-color: #ffffff !important;
+  color: #1f2328 !important;
+  border-color: #d0d7de !important;
+}
+
+html.light select option {
+  background-color: #ffffff !important;
+  color: #1f2328 !important;
+}
+
+html.light .placeholder-\[\#484f58\]::placeholder,
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #8c959f !important;
+}
+
+/* Light mode Shadows */
+html.light .shadow-2xl {
+  box-shadow: 0 10px 25px -5px rgba(27, 31, 36, 0.12), 0 8px 10px -6px rgba(27, 31, 36, 0.08) !important;
+}
+
+/* Light mode Scrollbars */
+html.light ::-webkit-scrollbar-track {
+  background: #f6f8fa !important;
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: #d0d7de !important;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #afb8c1 !important;
+}
+
+/* Native Calendar Picker Indicator for Date Inputs */
+html.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+html.light input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
