@@ -27,6 +27,7 @@ import { TaskWorkbench } from './components/TaskWorkbench';
 import { SettingsModal } from './components/SettingsModal';
 import { StatusBar } from './components/StatusBar';
 import { translateFallback } from './services/translationHelper';
+import { analyzeCommitsToTask } from './services/commitAnalyzer';
 
 export function App() {
   // Credentials & Settings Modal
@@ -92,6 +93,7 @@ export function App() {
   const [generationLanguage, setGenerationLanguage] = useState<'en' | 'pt'>('en');
   const [translatingTaskId, setTranslatingTaskId] = useState<string | null>(null);
   const [isTranslatingAll, setIsTranslatingAll] = useState(false);
+  const [improvingTaskId, setImprovingTaskId] = useState<string | null>(null);
 
   // Telemetry Log Console
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryLog[]>([
@@ -490,46 +492,11 @@ export function App() {
   // Check if sha is synced
   const isShaSynced = useCallback((sha: string) => syncedShas.has(sha), [syncedShas]);
 
-  // Smart local generator based on actual commit data (never leaves user blocked)
+  // Smart contextual generator based on actual commit data (never leaves user blocked)
   const generateSmartItems = useCallback(
     (selectedCommits: GitHubCommit[], lang: 'en' | 'pt') => {
-      const isEn = lang === 'en';
-      const items: GeminiTaskItem[] = [];
-
-      // Extract details from selected commits
-      const commitShas = selectedCommits.map((c) => c.sha.substring(0, 7));
-      const firstMsg = selectedCommits[0]?.commit?.message?.split('\n')[0] || '';
-
-      const cleanTitle = firstMsg
-        .replace(/^(feat|fix|refactor|chore|perf|style|docs|test)(\([^)]+\))?:\s*/i, '')
-        .trim();
-      const formattedTitle = cleanTitle ? cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1) : '';
-
-      if (isEn) {
-        items.push({
-          id: `task-ai-${Date.now()}-1`,
-          businessTitle: formattedTitle
-            ? `${formattedTitle} & Business Logic Enhancements`
-            : 'Platform Engineering & Workflow Optimizations',
-          businessDescription: `Completed core implementation and functional adjustments based on ${selectedCommits.length} commit(s), stabilizing business rules and user-facing workflows.`,
-          suggestedHours: Math.min(8.0, Math.max(0.5, +(selectedCommits.length * 0.75).toFixed(2))),
-          spentDate: dateRange.endDate,
-          sourceCommitShas: commitShas,
-        });
-      } else {
-        items.push({
-          id: `task-ai-${Date.now()}-1`,
-          businessTitle: formattedTitle
-            ? `${formattedTitle} e Melhorias Operacionais`
-            : 'Desenvolvimento e Manutenção Evolutiva da Plataforma',
-          businessDescription: `Implementação e validação de requisitos técnicos para ${selectedCommits.length} commit(s), assegurando estabilidade, regras de negócio e fiabilidade operacional.`,
-          suggestedHours: Math.min(8.0, Math.max(0.5, +(selectedCommits.length * 0.75).toFixed(2))),
-          spentDate: dateRange.endDate,
-          sourceCommitShas: commitShas,
-        });
-      }
-
-      return items;
+      const task = analyzeCommitsToTask(selectedCommits, lang, dateRange.endDate);
+      return [task];
     },
     [dateRange.endDate]
   );
@@ -908,6 +875,81 @@ export function App() {
     }
   };
 
+  // Improve / Elevate task description using AI and underlying commits
+  const handleImproveTask = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    // Find the commits associated with this task
+    const taskCommits = commits.filter((c) =>
+      task.sourceCommitShas.some(
+        (sha) => c.sha.startsWith(sha) || sha.startsWith(c.sha.substring(0, 7))
+      )
+    );
+
+    setImprovingTaskId(taskId);
+    addLog(
+      'info',
+      `A analisar commits originais para melhorar a descrição da tarefa com IA...`,
+      undefined,
+      'AI_IMPROVE'
+    );
+
+    try {
+      let improvedTitle = task.businessTitle;
+      let improvedDescription = task.businessDescription;
+
+      if (!isDemoMode && credentials.geminiApiKey) {
+        try {
+          const gemini = new GeminiService(credentials.geminiApiKey);
+          const commitMessages = taskCommits.map((c) => c.commit.message);
+          const res = await gemini.improveTaskDescription(
+            task.businessTitle,
+            task.businessDescription,
+            commitMessages,
+            generationLanguage
+          );
+          improvedTitle = res.businessTitle;
+          improvedDescription = res.businessDescription;
+        } catch (apiErr: any) {
+          console.warn('Gemini API call failed during improve, using semantic analyzer:', apiErr);
+          const localItem = analyzeCommitsToTask(
+            taskCommits.length > 0 ? taskCommits : commits.slice(0, 1),
+            generationLanguage,
+            task.spentDate
+          );
+          improvedTitle = localItem.businessTitle;
+          improvedDescription = localItem.businessDescription;
+        }
+      } else {
+        await new Promise((r) => setTimeout(r, 400));
+        const localItem = analyzeCommitsToTask(
+          taskCommits.length > 0 ? taskCommits : commits.slice(0, 1),
+          generationLanguage,
+          task.spentDate
+        );
+        improvedTitle = localItem.businessTitle;
+        improvedDescription = localItem.businessDescription;
+      }
+
+      handleUpdateTask(taskId, {
+        businessTitle: improvedTitle,
+        businessDescription: improvedDescription,
+      });
+
+      addLog(
+        'success',
+        `Descrição e título elevados com base nos commits com sucesso!`,
+        200,
+        'AI_IMPROVE_OK'
+      );
+    } catch (err: any) {
+      addLog('error', `Falha ao melhorar descrição: ${err.message}`, 500, 'AI_IMPROVE_ERROR');
+    } finally {
+      setImprovingTaskId(null);
+    }
+  };
+
   const handleClearTasks = () => {
     setTasks([]);
     addLog('info', 'Bancada de tarefas limpa.', undefined, 'CLEAR_WORKBENCH');
@@ -988,6 +1030,8 @@ export function App() {
           onTranslateAllTasks={handleTranslateAllTasks}
           translatingTaskId={translatingTaskId}
           isTranslatingAll={isTranslatingAll}
+          onImproveTask={handleImproveTask}
+          improvingTaskId={improvingTaskId}
         />
       </div>
 

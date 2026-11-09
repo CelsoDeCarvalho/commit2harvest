@@ -37,6 +37,8 @@ interface TaskWorkbenchProps {
   onTranslateAllTasks: (targetLang: 'en' | 'pt') => Promise<void>;
   translatingTaskId: string | null;
   isTranslatingAll: boolean;
+  onImproveTask?: (taskId: string) => void;
+  improvingTaskId?: string | null;
 }
 
 export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
@@ -60,6 +62,8 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
   onTranslateAllTasks,
   translatingTaskId,
   isTranslatingAll,
+  onImproveTask,
+  improvingTaskId,
 }) => {
   const readyTasks = tasks.filter(
     (t) => t.syncStatus !== 'synced' && t.projectId && t.taskId && t.hours > 0
@@ -530,12 +534,39 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                       <label className="text-[11px] font-mono text-[#8b949e] uppercase tracking-wider block">
                         Non-Technical Description & Deliverables
                       </label>
-                      <span className="text-[10px] font-mono text-[#8b949e]">
-                        {task.businessDescription.length} chars
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-mono text-[#8b949e]">
+                          {task.businessDescription.length} chars
+                        </span>
+                        {onImproveTask && (
+                          <button
+                            type="button"
+                            onClick={() => onImproveTask(task.id)}
+                            disabled={improvingTaskId === task.id || isSynced}
+                            className="flex items-center space-x-1 px-2 py-0.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] hover:border-[#ff6c37] text-[#ff6c37] text-[11px] font-mono transition-colors disabled:opacity-40"
+                            title={
+                              generationLanguage === 'en'
+                                ? 'Improve description with AI based on original commits'
+                                : 'Melhorar descrição com IA com base nos commits originais'
+                            }
+                          >
+                            {improvingTaskId === task.id ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin text-[#ff6c37]" />
+                                <span>{generationLanguage === 'en' ? 'Improving...' : 'Melhorando...'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3 h-3 text-[#ff6c37]" />
+                                <span>{generationLanguage === 'en' ? '✨ Improve with AI' : '✨ Melhorar com IA'}</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={task.businessDescription}
                       onChange={(e) =>
                         onUpdateTask(task.id, {
