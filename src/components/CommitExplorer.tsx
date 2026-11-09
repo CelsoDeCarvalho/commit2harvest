@@ -32,7 +32,8 @@ interface CommitExplorerProps {
   isShaSynced: (sha: string) => boolean;
   currentAuthor?: string;
   includeOtherRepos?: boolean;
-  onToggleIncludeOtherRepos?: (include: boolean) => void;
+  otherReposTargetDay?: string | null;
+  onToggleIncludeOtherRepos?: (include: boolean, targetDay?: string) => void;
   isLoadingOtherRepos?: boolean;
   selectedDayFilter?: string;
   onSelectDayFilter?: (day: string) => void;
@@ -55,6 +56,7 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
   isShaSynced,
   currentAuthor,
   includeOtherRepos = false,
+  otherReposTargetDay,
   onToggleIncludeOtherRepos,
   isLoadingOtherRepos = false,
   selectedDayFilter: propSelectedDayFilter,
@@ -350,12 +352,40 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
           {onToggleIncludeOtherRepos && (
             <label
               className="flex items-center space-x-1 text-[11px] font-mono cursor-pointer transition-colors"
-              title="Mostrar commits feitos noutros repositórios para este dia ou período"
+              title="Mostrar commits feitos noutros repositórios para o dia selecionado"
             >
               <input
                 type="checkbox"
                 checked={includeOtherRepos}
-                onChange={(e) => onToggleIncludeOtherRepos(e.target.checked)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    let target: string | null =
+                      activeDayFilter !== 'all' && activeDayFilter.length === 10
+                        ? activeDayFilter
+                        : null;
+
+                    if (!target && selectedCommitShas.size > 0) {
+                      const selectedCommitsList = commits.filter((c) =>
+                        selectedCommitShas.has(c.sha)
+                      );
+                      target =
+                        selectedCommitsList[0]?.commit?.author?.date?.substring(0, 10) || null;
+                    }
+
+                    if (!target && commitGroups.length > 0) {
+                      target = commitGroups[0]?.dateKey || null;
+                    }
+
+                    if (target) {
+                      setDayFilter(target);
+                      onToggleIncludeOtherRepos(true, target);
+                    } else {
+                      onToggleIncludeOtherRepos(true);
+                    }
+                  } else {
+                    onToggleIncludeOtherRepos(false);
+                  }
+                }}
                 className="accent-[#ff6c37] cursor-pointer h-3 w-3"
               />
               <span
@@ -366,6 +396,11 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
                 }
               >
                 Outros repos
+                {otherReposTargetDay && (
+                  <span className="text-[10px] text-[#ff6c37] ml-1">
+                    ({formatDateGroupLabel(otherReposTargetDay)})
+                  </span>
+                )}
               </span>
               {isLoadingOtherRepos && (
                 <RefreshCw className="w-2.5 h-2.5 animate-spin text-[#ff6c37]" />
@@ -438,19 +473,73 @@ export const CommitExplorer: React.FC<CommitExplorerProps> = ({
                   </label>
 
                   <div className="flex items-center space-x-2">
-                    {onToggleIncludeOtherRepos && !includeOtherRepos && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onToggleIncludeOtherRepos(true);
-                          setDayFilter(group.dateKey);
-                        }}
-                        className="text-[10px] text-[#8b949e] hover:text-[#58a6ff] hover:underline font-mono"
-                        title="Ver também os commits feitos noutros repositórios neste dia"
-                      >
-                        + Outros repos
-                      </button>
-                    )}
+                    {onToggleIncludeOtherRepos && (() => {
+                      const otherRepoCommitsInThisGroup = group.commits.filter(
+                        (c) =>
+                          c.repoFullName &&
+                          c.repoFullName.toLowerCase() !== selectedRepo.toLowerCase()
+                      );
+                      const isThisDayActive =
+                        includeOtherRepos && otherReposTargetDay === group.dateKey;
+
+                      if (isLoadingOtherRepos && isThisDayActive) {
+                        return (
+                          <span className="flex items-center space-x-1 text-[10px] text-[#ff6c37] font-mono">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                            <span>A procurar...</span>
+                          </span>
+                        );
+                      }
+
+                      if (isThisDayActive) {
+                        if (otherRepoCommitsInThisGroup.length > 0) {
+                          return (
+                            <span
+                              className="flex items-center space-x-1 text-[10px] text-[#238636] font-mono bg-[#238636]/15 border border-[#238636]/40 px-1.5 py-0.5"
+                              title={`${otherRepoCommitsInThisGroup.length} commit(s) de outros repositórios adicionados a este dia`}
+                            >
+                              <span>
+                                ✓ +{otherRepoCommitsInThisGroup.length} noutros repos
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onToggleIncludeOtherRepos(false);
+                                }}
+                                className="text-[#8b949e] hover:text-[#f85149] ml-1 font-bold"
+                                title="Ocultar commits de outros repositórios deste dia"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        } else if (!isLoadingOtherRepos) {
+                          return (
+                            <span
+                              className="text-[10px] text-[#8b949e] font-mono italic"
+                              title="Nenhum outro repositório teve commits seus neste dia"
+                            >
+                              0 noutros repos
+                            </span>
+                          );
+                        }
+                      }
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onToggleIncludeOtherRepos(true, group.dateKey);
+                            setDayFilter(group.dateKey);
+                          }}
+                          className="text-[10px] text-[#8b949e] hover:text-[#ff6c37] hover:underline font-mono"
+                          title={`Ver apenas commits deste dia (${group.label}) nos outros repositórios`}
+                        >
+                          + Outros repos
+                        </button>
+                      );
+                    })()}
 
                     <button
                       type="button"

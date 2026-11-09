@@ -154,10 +154,11 @@ export class GitHubService {
     currentRepoFullName: string;
     since?: string;
     until?: string;
+    targetDay?: string; // Format: YYYY-MM-DD
     author?: string;
     maxRepos?: number;
   }): Promise<GitHubCommit[]> {
-    const { repos, currentRepoFullName, since, until, author, maxRepos = 15 } = params;
+    const { repos, currentRepoFullName, since, until, targetDay, author, maxRepos = 15 } = params;
     if (!this.token) {
       return [];
     }
@@ -181,10 +182,40 @@ export class GitHubService {
           since,
           until,
           author,
-          maxCommits: 40,
+          maxCommits: 50,
         });
 
-        return commits.map((c) => ({
+        // Strict filter for this specific repository:
+        // 1. Author matching (if provided)
+        // 2. Exact Day matching (YYYY-MM-DD) if targetDay is provided
+        const matchingCommits = commits.filter((c) => {
+          if (author && author.trim()) {
+            const target = author.trim().toLowerCase();
+            const login = c.author?.login?.toLowerCase() || '';
+            const name = c.commit?.author?.name?.toLowerCase() || '';
+            const email = c.commit?.author?.email?.toLowerCase() || '';
+            const matchesAuthor =
+              login === target ||
+              name === target ||
+              name.includes(target) ||
+              email.includes(target);
+            if (!matchesAuthor) return false;
+          }
+
+          if (targetDay && targetDay.length === 10) {
+            const commitDay = (c.commit?.author?.date || '').substring(0, 10);
+            if (commitDay !== targetDay) return false;
+          }
+
+          return true;
+        });
+
+        // If this repository has NO commits on this specific day, do NOT bring the repo
+        if (matchingCommits.length === 0) {
+          return [];
+        }
+
+        return matchingCommits.map((c) => ({
           ...c,
           repoName: r.name,
           repoFullName: r.full_name,
@@ -201,21 +232,6 @@ export class GitHubService {
       if (res.status === 'fulfilled' && Array.isArray(res.value)) {
         combined.push(...res.value);
       }
-    }
-
-    if (author && author.trim()) {
-      const target = author.trim().toLowerCase();
-      return combined.filter((c) => {
-        const login = c.author?.login?.toLowerCase() || '';
-        const name = c.commit?.author?.name?.toLowerCase() || '';
-        const email = c.commit?.author?.email?.toLowerCase() || '';
-        return (
-          login === target ||
-          name === target ||
-          name.includes(target) ||
-          email.includes(target)
-        );
-      });
     }
 
     return combined;

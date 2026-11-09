@@ -102,6 +102,7 @@ export function App() {
 
   // Multi-repository commit scanning
   const [includeOtherRepos, setIncludeOtherRepos] = useState(false);
+  const [otherReposTargetDay, setOtherReposTargetDay] = useState<string | null>(null);
   const [isLoadingOtherRepos, setIsLoadingOtherRepos] = useState(false);
   const [selectedDayFilter, setSelectedDayFilter] = useState('all');
   const [otherRepoCommits, setOtherRepoCommits] = useState<GitHubCommit[]>([]);
@@ -475,10 +476,22 @@ export function App() {
       return;
     }
 
+    // Determine target day for other repos scanning:
+    // Prioritize otherReposTargetDay, then selectedDayFilter (if not 'all')
+    const targetDay =
+      otherReposTargetDay ||
+      (selectedDayFilter !== 'all' && selectedDayFilter.length === 10
+        ? selectedDayFilter
+        : undefined);
+
+    const dayLabel = targetDay
+      ? `${targetDay.split('-')[2]}/${targetDay.split('-')[1]}/${targetDay.split('-')[0]}`
+      : 'período selecionado';
+
     setIsLoadingOtherRepos(true);
     addLog(
       'info',
-      'A procurar commits de outros repositórios para o período selecionado...',
+      `A procurar commits de outros repositórios para ${dayLabel}...`,
       undefined,
       'MULTI_REPO_SCAN'
     );
@@ -486,29 +499,46 @@ export function App() {
     try {
       if (isDemoMode) {
         await new Promise((r) => setTimeout(r, 400));
-        setOtherRepoCommits(SAMPLE_OTHER_REPO_COMMITS);
+        const filteredSample = targetDay
+          ? SAMPLE_OTHER_REPO_COMMITS.filter(
+              (c) => c.commit?.author?.date?.substring(0, 10) === targetDay
+            )
+          : SAMPLE_OTHER_REPO_COMMITS;
+
+        setOtherRepoCommits(filteredSample);
         addLog(
           'success',
-          `${SAMPLE_OTHER_REPO_COMMITS.length} commits encontrados em outros repositórios (Modo Demo).`,
+          `${filteredSample.length} commits encontrados em outros repositórios para ${dayLabel} (Modo Demo).`,
           200,
           'MULTI_REPO_OK'
         );
       } else if (credentials.githubToken && repos.length > 0) {
         const gh = new GitHubService(credentials.githubToken);
 
-        const isSpecificDay = selectedDayFilter !== 'all' && selectedDayFilter.length === 10;
-        const since = isSpecificDay
-          ? `${selectedDayFilter}T00:00:00Z`
-          : `${dateRange.startDate}T00:00:00Z`;
-        const until = isSpecificDay
-          ? `${selectedDayFilter}T23:59:59Z`
-          : `${dateRange.endDate}T23:59:59Z`;
+        let since: string | undefined;
+        let until: string | undefined;
+
+        if (targetDay && targetDay.length === 10) {
+          // Send a safe UTC window around that date to ensure timezone differences (SAST/CAT UTC+2, etc.) don't clip commits
+          const d = new Date(targetDay);
+          const prevDay = new Date(d);
+          prevDay.setDate(prevDay.getDate() - 1);
+          const nextDay = new Date(d);
+          nextDay.setDate(nextDay.getDate() + 1);
+
+          since = `${prevDay.toISOString().substring(0, 10)}T12:00:00Z`;
+          until = `${nextDay.toISOString().substring(0, 10)}T12:00:00Z`;
+        } else {
+          since = `${dateRange.startDate}T00:00:00Z`;
+          until = `${dateRange.endDate}T23:59:59Z`;
+        }
 
         const fetched = await gh.fetchCommitsFromOtherRepos({
           repos,
           currentRepoFullName: selectedRepo,
           since,
           until,
+          targetDay,
           author: effectiveAuthor || undefined,
           maxRepos: 15,
         });
@@ -516,7 +546,9 @@ export function App() {
         setOtherRepoCommits(fetched);
         addLog(
           'success',
-          `${fetched.length} commits de outros repositórios encontrados para este período.`,
+          fetched.length > 0
+            ? `${fetched.length} commits de outros repositórios encontrados para ${dayLabel}.`
+            : `Nenhum commit encontrado noutros repositórios para ${dayLabel}.`,
           200,
           'MULTI_REPO_OK'
         );
@@ -529,6 +561,7 @@ export function App() {
     }
   }, [
     includeOtherRepos,
+    otherReposTargetDay,
     selectedDayFilter,
     dateRange,
     isDemoMode,
@@ -555,11 +588,18 @@ export function App() {
       return taggedCurrent;
     }
 
+    // STRICT: Only merge other repo commits that match the target day if one is set!
+    const filteredOther = otherReposTargetDay
+      ? otherRepoCommits.filter(
+          (c) => c.commit?.author?.date?.substring(0, 10) === otherReposTargetDay
+        )
+      : otherRepoCommits;
+
     const shaMap = new Map<string, GitHubCommit>();
     for (const c of taggedCurrent) {
       shaMap.set(c.sha, c);
     }
-    for (const c of otherRepoCommits) {
+    for (const c of filteredOther) {
       if (!shaMap.has(c.sha)) {
         shaMap.set(c.sha, c);
       }
@@ -570,7 +610,50 @@ export function App() {
       const dateB = new Date(b.commit.author.date).getTime();
       return dateB - dateA;
     });
-  }, [commits, includeOtherRepos, otherRepoCommits, selectedRepo]);
+  }, [commits, includeOtherRepos, otherRepoCommits, otherReposTargetDay, selectedRepo]);
+
+  // Handler for toggling multi-repository commits with optional specific target day
+  const handleToggleIncludeOtherRepos = useCallback(
+    (include: boolean, targetDay?: string) => {
+      setIncludeOtherRepos(include);
+      if (!include) {
+        setOtherReposTargetDay(null);
+        setOtherRepoCommits([]);
+        return;
+      }
+
+      if (targetDay && targetDay.length === 10) {
+        setOtherReposTargetDay(targetDay);
+        setSelectedDayFilter(targetDay);
+        return;
+      }
+
+      if (selectedDayFilter !== 'all' && selectedDayFilter.length === 10) {
+        setOtherReposTargetDay(selectedDayFilter);
+        return;
+      }
+
+      if (selectedCommitShas.size > 0) {
+        const selectedList = commits.filter((c) => selectedCommitShas.has(c.sha));
+        const dayFromSelected = selectedList[0]?.commit?.author?.date?.substring(0, 10);
+        if (dayFromSelected && dayFromSelected.length === 10) {
+          setOtherReposTargetDay(dayFromSelected);
+          setSelectedDayFilter(dayFromSelected);
+          return;
+        }
+      }
+
+      const firstCommitDay = commits[0]?.commit?.author?.date?.substring(0, 10);
+      if (firstCommitDay && firstCommitDay.length === 10) {
+        setOtherReposTargetDay(firstCommitDay);
+        setSelectedDayFilter(firstCommitDay);
+        return;
+      }
+
+      setOtherReposTargetDay(null);
+    },
+    [commits, selectedCommitShas, selectedDayFilter]
+  );
 
   // Check repo mapping preset
   const activeMapping = useMemo(() => {
@@ -1146,10 +1229,16 @@ export function App() {
           isShaSynced={isShaSynced}
           currentAuthor={effectiveAuthor}
           includeOtherRepos={includeOtherRepos}
-          onToggleIncludeOtherRepos={setIncludeOtherRepos}
+          otherReposTargetDay={otherReposTargetDay}
+          onToggleIncludeOtherRepos={handleToggleIncludeOtherRepos}
           isLoadingOtherRepos={isLoadingOtherRepos}
           selectedDayFilter={selectedDayFilter}
-          onSelectDayFilter={setSelectedDayFilter}
+          onSelectDayFilter={(day) => {
+            setSelectedDayFilter(day);
+            if (includeOtherRepos && day !== 'all' && day.length === 10) {
+              setOtherReposTargetDay(day);
+            }
+          }}
         />
 
         {/* Right Pane: AI Task Mapper & Harvest Payload Builder (55% width) */}
