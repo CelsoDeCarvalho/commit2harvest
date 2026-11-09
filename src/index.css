@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-radius: 0px !important;
+  }
+
+  /* Custom dark scrollbar for Postman/GitHub density */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0d1117;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #30363d;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+  }
+}
+
+/* Custom styling for inputs, focus outlines */
+input, select, textarea, button {
+  border-radius: 0px !important;
+  outline: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #2f81f7 !important;
+  box-shadow: 0 0 0 1px #2f81f7 !important;
+}
+
+/* Tabular numbers for technical metadata */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
