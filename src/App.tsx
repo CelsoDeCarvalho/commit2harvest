@@ -27,7 +27,7 @@ import { TaskWorkbench } from './components/TaskWorkbench';
 import { SettingsModal } from './components/SettingsModal';
 import { StatusBar } from './components/StatusBar';
 import { translateFallback } from './services/translationHelper';
-import { analyzeCommitsToTask } from './services/commitAnalyzer';
+import { analyzeCommitsToTasks, analyzeCommitToTask } from './services/commitAnalyzer';
 
 export function App() {
   // Credentials & Settings Modal
@@ -492,13 +492,12 @@ export function App() {
   // Check if sha is synced
   const isShaSynced = useCallback((sha: string) => syncedShas.has(sha), [syncedShas]);
 
-  // Smart contextual generator based on actual commit data (never leaves user blocked)
+  // Smart contextual generator based on actual commit data (1 commit = 1 task)
   const generateSmartItems = useCallback(
     (selectedCommits: GitHubCommit[], lang: 'en' | 'pt') => {
-      const task = analyzeCommitsToTask(selectedCommits, lang, dateRange.endDate);
-      return [task];
+      return analyzeCommitsToTasks(selectedCommits, lang);
     },
-    [dateRange.endDate]
+    []
   );
 
   // Transform with Gemini Action
@@ -534,8 +533,8 @@ export function App() {
           addLog(
             'warn',
             isQuota
-              ? 'Quota gratuita da API Gemini atingida para o modelo selecionado. Tarefa gerada automaticamente em inglês com o motor contextual.'
-              : `Aviso Gemini (${apiErr.message.slice(0, 80)}...). Tarefa gerada pelo motor inteligente.`,
+              ? 'Quota gratuita da API Gemini atingida para o modelo selecionado. Tarefas geradas individualmente com o motor contextual (1 commit = 1 task).'
+              : `Aviso Gemini (${apiErr.message.slice(0, 80)}...). Tarefas geradas pelo motor inteligente.`,
             429,
             'AI_FALLBACK'
           );
@@ -554,22 +553,37 @@ export function App() {
       const defaultTaskId =
         savedMap?.taskId || defaultProj?.task_assignments?.[0]?.task?.id || null;
 
-      const newWorkbenchTasks: WorkbenchTask[] = generatedItems.map((item) => ({
-        id: item.id,
-        businessTitle: item.businessTitle,
-        businessDescription: item.businessDescription,
-        spentDate: item.spentDate,
-        hours: item.suggestedHours,
-        projectId: defaultProjId,
-        taskId: defaultTaskId,
-        sourceCommitShas: item.sourceCommitShas,
-        syncStatus: 'pending',
-      }));
+      const newWorkbenchTasks: WorkbenchTask[] = generatedItems.map((item, idx) => {
+        // Guarantee exact spentDate from the matching commit
+        const matchingCommit =
+          selectedCommits.find((c) =>
+            item.sourceCommitShas?.some((s) => c.sha.startsWith(s))
+          ) || selectedCommits[idx];
+
+        const commitDate = matchingCommit?.commit?.author?.date?.substring(0, 10);
+        const exactSpentDate = commitDate || item.spentDate || dateRange.endDate;
+
+        return {
+          id: item.id || `task-wb-${Date.now()}-${idx + 1}`,
+          businessTitle: item.businessTitle,
+          businessDescription: item.businessDescription,
+          spentDate: exactSpentDate,
+          hours: item.suggestedHours || 0.75,
+          projectId: defaultProjId,
+          taskId: defaultTaskId,
+          sourceCommitShas: item.sourceCommitShas?.length
+            ? item.sourceCommitShas
+            : matchingCommit
+            ? [matchingCommit.sha.substring(0, 7)]
+            : [],
+          syncStatus: 'pending',
+        };
+      });
 
       setTasks((prev) => [...newWorkbenchTasks, ...prev]);
       addLog(
         'success',
-        `Gemini gerou ${newWorkbenchTasks.length} tarefas de negócio estruturadas com sucesso!`,
+        `Geradas ${newWorkbenchTasks.length} tarefas de negócio individuais (1 commit = 1 task) com sucesso!`,
         200,
         'GEMINI TRANSFORM COMPLETE'
       );
@@ -913,23 +927,21 @@ export function App() {
           improvedDescription = res.businessDescription;
         } catch (apiErr: any) {
           console.warn('Gemini API call failed during improve, using semantic analyzer:', apiErr);
-          const localItem = analyzeCommitsToTask(
-            taskCommits.length > 0 ? taskCommits : commits.slice(0, 1),
-            generationLanguage,
-            task.spentDate
-          );
-          improvedTitle = localItem.businessTitle;
-          improvedDescription = localItem.businessDescription;
+          const targetCommit = taskCommits[0] || commits[0];
+          if (targetCommit) {
+            const localItem = analyzeCommitToTask(targetCommit, generationLanguage);
+            improvedTitle = localItem.businessTitle;
+            improvedDescription = localItem.businessDescription;
+          }
         }
       } else {
         await new Promise((r) => setTimeout(r, 400));
-        const localItem = analyzeCommitsToTask(
-          taskCommits.length > 0 ? taskCommits : commits.slice(0, 1),
-          generationLanguage,
-          task.spentDate
-        );
-        improvedTitle = localItem.businessTitle;
-        improvedDescription = localItem.businessDescription;
+        const targetCommit = taskCommits[0] || commits[0];
+        if (targetCommit) {
+          const localItem = analyzeCommitToTask(targetCommit, generationLanguage);
+          improvedTitle = localItem.businessTitle;
+          improvedDescription = localItem.businessDescription;
+        }
       }
 
       handleUpdateTask(taskId, {
