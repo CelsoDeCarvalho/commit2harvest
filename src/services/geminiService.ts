@@ -33,7 +33,8 @@ export class GeminiService {
 
   async transformCommitsToTasks(
     commits: GitHubCommit[],
-    repoName?: string
+    repoName?: string,
+    language: 'en' | 'pt' = 'en'
   ): Promise<GeminiTaskItem[]> {
     if (!commits || commits.length === 0) {
       return [];
@@ -51,7 +52,22 @@ export class GeminiService {
       author: c.commit.author.name,
     }));
 
-    const systemPrompt = `Você é um Principal Technical Lead e Gestor de Projetos sénior especializado em traduzir trabalho técnico de engenharia de software para clientes executivos e timesheets formais de negócios.
+    const isEnglish = language === 'en';
+
+    const systemPrompt = isEnglish
+      ? `You are a Principal Technical Lead and Senior Project Manager specialized in translating raw software engineering commits into executive-level client deliverables and formal business timesheet entries.
+You write exclusively in professional, corporate ENGLISH (clear, high-level, business-oriented, free of low-level code slang, raw variable names, or internal git plumbing).
+
+Mandatory transformation rules:
+1. Group correlated micro-commits (e.g. multiple fixes, refactorings, or commits in the same module/feature on the same date) into a single cohesive, business-oriented task.
+2. Eliminate any developer-only jargon irrelevant to executive clients (e.g. variable names, classes, types, lint, bump of versions, merged branch, commit hashes, PR # numbers).
+3. 'businessTitle': A concise, corporate title focused on user value or business functionality in English (e.g. "Data Export Module and Report Optimization", "Authentication Pipeline & Two-Factor Verification", "Financial Dashboard Status Consistency Fixes").
+4. 'businessDescription': A well-written, professional paragraph in English detailing the business benefit and scope delivered to the client, without unnecessary fluff.
+5. 'suggestedHours': Estimate realistic hours based on scope and complexity (increments of 0.25, 0.5, 0.75, or 1.0, e.g. 0.5, 1.25, 2.0, 3.5).
+6. 'spentDate': YYYY-MM-DD format taken from the predominant commit date.
+7. 'sourceCommitShas': Exact list of 7-character SHAs belonging to this grouped task.
+8. Return only the strict JSON schema requested.`
+      : `Você é um Principal Technical Lead e Gestor de Projetos sénior especializado em traduzir trabalho técnico de engenharia de software para clientes executivos e timesheets formais de negócios.
 Você escreve exclusivamente em PORTUGUÊS (padrão formal e profissional de Portugal e Moçambique, sem calão, sem jargões de código cru).
 
 Regras obrigatórias de transformação:
@@ -64,7 +80,13 @@ Regras obrigatórias de transformação:
 7. 'sourceCommitShas': Lista exata dos 7-caracteres SHAs (ou SHAs completos) pertencentes a esta tarefa agrupada.
 8. Retorne apenas o schema JSON estrito solicitado.`;
 
-    const userPrompt = `Analise e agrupe os seguintes ${commits.length} commits do repositório ${repoName || 'do projeto'}:
+    const userPrompt = isEnglish
+      ? `Analyze and group the following ${commits.length} commits from repository ${repoName || 'the project'}:
+
+${JSON.stringify(commitsData, null, 2)}
+
+Group the logical commits and generate the timesheet tasks in English JSON format matching the schema.`
+      : `Analise e agrupe os seguintes ${commits.length} commits do repositório ${repoName || 'do projeto'}:
 
 ${JSON.stringify(commitsData, null, 2)}
 
@@ -152,6 +174,88 @@ Agrupe os commits lógicos e gere as tarefas em formato JSON conforme o schema.`
       console.error('Failed to parse Gemini JSON output:', candidate, parseErr);
       throw new Error('Não foi possível interpretar o JSON retornado pela IA Gemini.');
     }
+  }
+
+  async translateTasks(
+    tasks: { id: string; businessTitle: string; businessDescription: string }[],
+    targetLanguage: 'en' | 'pt' = 'en'
+  ): Promise<{ id: string; businessTitle: string; businessDescription: string }[]> {
+    if (!tasks || tasks.length === 0) return [];
+    if (!this.apiKey) {
+      throw new Error('Chave Gemini API ausente. Configure a chave nas Definições.');
+    }
+
+    const langName = targetLanguage === 'en' ? 'ENGLISH' : 'PORTUGUESE';
+    const systemPrompt = `You are an expert bilingual corporate technical translator.
+Translate the business title and business description of each software development timesheet task into professional, executive-level ${langName}.
+Maintain high corporate standards suitable for Harvest client timesheets.
+Preserve the exact 'id' for each item.
+Return only the strict JSON array schema requested.`;
+
+    const userPrompt = `Translate the following ${tasks.length} tasks into executive-level ${langName}:\n\n${JSON.stringify(
+      tasks.map((t) => ({ id: t.id, businessTitle: t.businessTitle, businessDescription: t.businessDescription })),
+      null,
+      2
+    )}`;
+
+    const payload = {
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              id: { type: 'STRING' },
+              businessTitle: { type: 'STRING' },
+              businessDescription: { type: 'STRING' },
+            },
+            required: ['id', 'businessTitle', 'businessDescription'],
+          },
+        },
+      },
+    };
+
+    let response = await this.callGeminiApi(this.primaryModel, payload);
+    if (!response.ok && (response.status === 404 || response.status === 400)) {
+      response = await this.callGeminiApi(this.fallbackModel, payload);
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      let errorMsg = `Erro ${response.status}: ${response.statusText}`;
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed.error?.message) errorMsg = parsed.error.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(`Erro na tradução com Gemini: ${errorMsg}`);
+    }
+
+    const data = await response.json();
+    const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!candidate) {
+      throw new Error('Nenhuma resposta retornada pelo modelo Gemini para tradução.');
+    }
+
+    return JSON.parse(candidate);
+  }
+
+  async translateTask(
+    task: { id: string; businessTitle: string; businessDescription: string },
+    targetLanguage: 'en' | 'pt' = 'en'
+  ): Promise<{ businessTitle: string; businessDescription: string }> {
+    const results = await this.translateTasks([task], targetLanguage);
+    if (results.length > 0) {
+      return {
+        businessTitle: results[0].businessTitle,
+        businessDescription: results[0].businessDescription,
+      };
+    }
+    throw new Error('Falha ao traduzir tarefa.');
   }
 
   private async callGeminiApi(model: string, body: any): Promise<Response> {

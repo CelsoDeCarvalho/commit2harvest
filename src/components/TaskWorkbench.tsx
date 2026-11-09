@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Clock,
   Calendar,
+  Languages,
 } from 'lucide-react';
 
 interface TaskWorkbenchProps {
@@ -30,6 +31,12 @@ interface TaskWorkbenchProps {
   onPushAllReadyToHarvest: () => Promise<void>;
   isPushingAll: boolean;
   onApplyProjectToAll: (projectId: number, taskId: number) => void;
+  generationLanguage: 'en' | 'pt';
+  onToggleGenerationLanguage: (lang: 'en' | 'pt') => void;
+  onTranslateTask: (taskId: string, targetLang?: 'en' | 'pt') => Promise<void>;
+  onTranslateAllTasks: (targetLang: 'en' | 'pt') => Promise<void>;
+  translatingTaskId: string | null;
+  isTranslatingAll: boolean;
 }
 
 export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
@@ -47,6 +54,12 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
   onPushAllReadyToHarvest,
   isPushingAll,
   onApplyProjectToAll,
+  generationLanguage,
+  onToggleGenerationLanguage,
+  onTranslateTask,
+  onTranslateAllTasks,
+  translatingTaskId,
+  isTranslatingAll,
 }) => {
   const readyTasks = tasks.filter(
     (t) => t.syncStatus !== 'synced' && t.projectId && t.taskId && t.hours > 0
@@ -83,28 +96,93 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
 
       {/* Action Header Bar (Postman Workbench Action Controls) */}
       <div className="p-2 border-b border-[#30363d] bg-[#161b22] flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center flex-wrap gap-2">
           {/* Transform Selected with Gemini */}
-          <button
-            onClick={onTransformWithGemini}
-            disabled={isTransforming || selectedCommitCount === 0}
-            className="flex items-center space-x-1.5 bg-[#ff6c37] hover:bg-[#e55b2b] text-white font-medium px-3.5 py-1.5 text-xs uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title="Cluster and translate selected commits into executive Portuguese tasks"
-          >
-            {isTransforming ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Transforming with Gemini...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>
-                  Transform Selected ({selectedCommitCount}) with Gemini
-                </span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center">
+            <button
+              onClick={onTransformWithGemini}
+              disabled={isTransforming || selectedCommitCount === 0}
+              className="flex items-center space-x-1.5 bg-[#ff6c37] hover:bg-[#e55b2b] text-white font-medium px-3.5 py-1.5 text-xs uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title={`Group and generate timesheet tasks in ${
+                generationLanguage === 'en' ? 'English' : 'Portuguese'
+              } using Gemini AI`}
+            >
+              {isTransforming ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Transforming with Gemini...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>
+                    Transform Selected ({selectedCommitCount})
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* Generation Language Selector Pill (Default: English) */}
+            <div
+              className="flex items-center bg-[#0d1117] border border-l-0 border-[#30363d] px-1 py-1 text-xs font-mono"
+              title="Idioma de geração do Gemini (Inglês por defeito)"
+            >
+              <button
+                type="button"
+                onClick={() => onToggleGenerationLanguage('en')}
+                className={`px-1.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                  generationLanguage === 'en'
+                    ? 'bg-[#ff6c37] text-white font-bold'
+                    : 'text-[#8b949e] hover:text-[#e6edf3]'
+                }`}
+                title="Gerar em Inglês (Padrão)"
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleGenerationLanguage('pt')}
+                className={`px-1.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                  generationLanguage === 'pt'
+                    ? 'bg-[#ff6c37] text-white font-bold'
+                    : 'text-[#8b949e] hover:text-[#e6edf3]'
+                }`}
+                title="Gerar em Português"
+              >
+                PT
+              </button>
+            </div>
+          </div>
+
+          {/* Batch Translate All Tasks Button (Active when tasks exist) */}
+          {tasks.length > 0 && (
+            <div className="flex items-center bg-[#0d1117] border border-[#30363d]">
+              <button
+                type="button"
+                onClick={() => onTranslateAllTasks('en')}
+                disabled={isTranslatingAll}
+                className="flex items-center space-x-1.5 px-2.5 py-1 text-xs font-mono text-[#e6edf3] hover:bg-[#21262d] transition-colors disabled:opacity-50"
+                title="Traduzir todas as tarefas da bancada para Inglês"
+              >
+                {isTranslatingAll ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-[#2f81f7]" />
+                ) : (
+                  <Languages className="w-3 h-3 text-[#2f81f7]" />
+                )}
+                <span>Traduzir Todas (EN)</span>
+              </button>
+              <span className="text-[#30363d]">|</span>
+              <button
+                type="button"
+                onClick={() => onTranslateAllTasks('pt')}
+                disabled={isTranslatingAll}
+                className="px-2 py-1 text-xs font-mono text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors disabled:opacity-50"
+                title="Traduzir todas as tarefas para Português"
+              >
+                PT
+              </button>
+            </div>
+          )}
 
           {/* Push All Ready */}
           <button
@@ -162,11 +240,13 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
               Bancada de Tarefas Vazia
             </span>
             <p className="max-w-md text-xs text-[#8b949e] leading-relaxed mb-4">
-              1. Selecione os commits técnicos desejados no painel esquerdo.
+              1. Selecione os seus commits técnicos no painel esquerdo.
               <br />
-              2. Clique no botão cor de laranja <strong className="text-[#ff6c37]">"Transform Selected with Gemini"</strong> para agrupar e traduzir em português de negócios.
+              2. Clique em <strong className="text-[#ff6c37]">"Transform Selected"</strong> para agrupar e gerar tarefas executivas em <strong>inglês de negócios</strong>.
               <br />
-              3. Reveja os projetos do Harvest e clique em <strong className="text-[#238636]">"Push All Ready"</strong>.
+              3. Pode traduzir tarefas a qualquer momento com o botão <strong className="text-[#2f81f7]">"Traduzir (EN ⇄ PT)"</strong>.
+              <br />
+              4. Associe os projetos do Harvest e clique em <strong className="text-[#238636]">"Push All Ready"</strong>.
             </p>
             <div className="flex space-x-2">
               <button
@@ -187,6 +267,7 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
             const isSynced = task.syncStatus === 'synced';
             const isSyncing = task.syncStatus === 'syncing';
             const hasError = task.syncStatus === 'error';
+            const isTaskTranslating = translatingTaskId === task.id;
 
             return (
               <div
@@ -229,7 +310,7 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                     )}
                   </div>
 
-                  {/* Right: Date, Hours, Push Button & Delete */}
+                  {/* Right: Date, Hours, Translate, Push Button & Delete */}
                   <div className="flex items-center space-x-2 font-mono text-xs">
                     {/* Date Input */}
                     <div className="flex items-center space-x-1 bg-[#161b22] border border-[#30363d] px-1.5 py-0.5">
@@ -240,7 +321,7 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                         onChange={(e) =>
                           onUpdateTask(task.id, { spentDate: e.target.value })
                         }
-                        className="bg-transparent text-[#e6edf3] text-xs font-mono w-28"
+                        className="bg-transparent text-[#e6edf3] text-xs font-mono w-28 outline-none"
                       />
                     </div>
 
@@ -258,10 +339,31 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                             hours: parseFloat(e.target.value) || 0,
                           })
                         }
-                        className="w-16 bg-transparent text-right font-mono text-xs text-[#e6edf3]"
+                        className="w-16 bg-transparent text-right font-mono text-xs text-[#e6edf3] outline-none"
                       />
                       <span className="text-[#8b949e] text-xs font-mono">h</span>
                     </div>
+
+                    {/* Individual Task Translate Button */}
+                    <button
+                      type="button"
+                      onClick={() => onTranslateTask(task.id)}
+                      disabled={isTaskTranslating || isSynced}
+                      className="flex items-center space-x-1 px-2 py-1 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] hover:border-[#2f81f7] text-[#e6edf3] text-[11px] font-mono transition-colors disabled:opacity-40"
+                      title="Traduzir esta tarefa entre Inglês e Português"
+                    >
+                      {isTaskTranslating ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin text-[#ff6c37]" />
+                          <span>Traduzindo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Languages className="w-3 h-3 text-[#2f81f7]" />
+                          <span>Traduzir EN ⇄ PT</span>
+                        </>
+                      )}
+                    </button>
 
                     {/* Individual Push to Harvest Button / Status */}
                     {isSynced ? (
@@ -403,25 +505,35 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                 <div className="p-3 space-y-2 bg-[#161b22]">
                   {/* Business Title */}
                   <div className="space-y-1">
-                    <label className="text-[11px] font-mono text-[#8b949e] uppercase tracking-wider block">
-                      Executive Business Title (PT)
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-mono text-[#8b949e] uppercase tracking-wider block">
+                        Executive Business Title (Harvest Note)
+                      </label>
+                      <span className="text-[10px] font-mono text-[#8b949e]">
+                        EN / PT
+                      </span>
+                    </div>
                     <input
                       type="text"
                       value={task.businessTitle}
                       onChange={(e) =>
                         onUpdateTask(task.id, { businessTitle: e.target.value })
                       }
-                      placeholder="Ex: Exportação de dados e relatórios de utilizadores..."
-                      className="w-full bg-[#0d1117] border border-[#30363d] px-2.5 py-1.5 text-sm font-medium text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7]"
+                      placeholder="e.g. Data Export Module & Reporting Optimization..."
+                      className="w-full bg-[#0d1117] border border-[#30363d] px-2.5 py-1.5 text-sm font-medium text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7] outline-none"
                     />
                   </div>
 
                   {/* Non-Technical Description */}
                   <div className="space-y-1">
-                    <label className="text-[11px] font-mono text-[#8b949e] uppercase tracking-wider block">
-                      Non-Technical Description & Client Notes (PT)
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-mono text-[#8b949e] uppercase tracking-wider block">
+                        Non-Technical Description & Deliverables
+                      </label>
+                      <span className="text-[10px] font-mono text-[#8b949e]">
+                        {task.businessDescription.length} chars
+                      </span>
+                    </div>
                     <textarea
                       rows={2}
                       value={task.businessDescription}
@@ -430,8 +542,8 @@ export const TaskWorkbench: React.FC<TaskWorkbenchProps> = ({
                           businessDescription: e.target.value,
                         })
                       }
-                      placeholder="Descreva o benefício de negócio e o que foi concluído sem jargões de código..."
-                      className="w-full bg-[#0d1117] border border-[#30363d] px-2.5 py-1.5 text-sm text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7] leading-relaxed resize-y"
+                      placeholder="Describe the business deliverable, user value, and operational scope without raw code jargon..."
+                      className="w-full bg-[#0d1117] border border-[#30363d] px-2.5 py-1.5 text-sm text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7] leading-relaxed resize-y outline-none"
                     />
                   </div>
 

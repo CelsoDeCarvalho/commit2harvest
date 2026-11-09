@@ -25,6 +25,7 @@ import { CommitExplorer } from './components/CommitExplorer';
 import { TaskWorkbench } from './components/TaskWorkbench';
 import { SettingsModal } from './components/SettingsModal';
 import { StatusBar } from './components/StatusBar';
+import { translateFallback } from './services/translationHelper';
 
 export function App() {
   // Credentials & Settings Modal
@@ -87,6 +88,9 @@ export function App() {
   const [tasks, setTasks] = useState<WorkbenchTask[]>([]);
   const [isTransforming, setIsTransforming] = useState(false);
   const [isPushingAll, setIsPushingAll] = useState(false);
+  const [generationLanguage, setGenerationLanguage] = useState<'en' | 'pt'>('en');
+  const [translatingTaskId, setTranslatingTaskId] = useState<string | null>(null);
+  const [isTranslatingAll, setIsTranslatingAll] = useState(false);
 
   // Telemetry Log Console
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryLog[]>([
@@ -503,9 +507,13 @@ export function App() {
 
       if (!isDemoMode && credentials.geminiApiKey) {
         const gemini = new GeminiService(credentials.geminiApiKey);
-        generatedItems = await gemini.transformCommitsToTasks(selectedCommits, selectedRepo);
+        generatedItems = await gemini.transformCommitsToTasks(
+          selectedCommits,
+          selectedRepo,
+          generationLanguage
+        );
       } else {
-        // Fallback intelligent simulation in Portuguese for demo mode or no key
+        // Fallback intelligent simulation
         await new Promise((r) => setTimeout(r, 900));
 
         // Group into 2 realistic executive tasks
@@ -521,43 +529,84 @@ export function App() {
 
         generatedItems = [];
 
-        if (exportCommits.length > 0 || selectedCommits.length <= 2) {
-          const sourceShas = (exportCommits.length > 0 ? exportCommits : selectedCommits).map(
-            (c) => c.sha.substring(0, 7)
-          );
-          generatedItems.push({
-            id: `task-ai-${Date.now()}-1`,
-            businessTitle: 'Módulo de Exportação de Dados e Otimização de Relatórios',
-            businessDescription:
-              'Implementação do mecanismo de exportação em lote para formato Excel e correção nos filtros de unidades organizacionais, garantindo maior estabilidade no processamento de grandes volumes.',
-            suggestedHours: 2.5,
-            spentDate: dateRange.endDate,
-            sourceCommitShas: sourceShas,
-          });
-        }
+        if (generationLanguage === 'en') {
+          if (exportCommits.length > 0 || selectedCommits.length <= 2) {
+            const sourceShas = (exportCommits.length > 0 ? exportCommits : selectedCommits).map(
+              (c) => c.sha.substring(0, 7)
+            );
+            generatedItems.push({
+              id: `task-ai-${Date.now()}-1`,
+              businessTitle: 'Data Export Module & Report Streaming Optimization',
+              businessDescription:
+                'Implemented bulk Excel streaming export handlers and organizational unit filter validation to ensure system reliability under large datasets.',
+              suggestedHours: 2.5,
+              spentDate: dateRange.endDate,
+              sourceCommitShas: sourceShas,
+            });
+          }
 
-        if (securityCommits.length > 0 && selectedCommits.length > 2) {
-          generatedItems.push({
-            id: `task-ai-${Date.now()}-2`,
-            businessTitle: 'Melhorias de Segurança e Controlo de Acessos',
-            businessDescription:
-              'Integração de verificação em duas etapas (TOTP) no fluxo de autenticação e atualização preventiva de dependências para reforço dos padrões de segurança.',
-            suggestedHours: 2.0,
-            spentDate: dateRange.startDate,
-            sourceCommitShas: securityCommits.map((c) => c.sha.substring(0, 7)),
-          });
-        }
+          if (securityCommits.length > 0 && selectedCommits.length > 2) {
+            generatedItems.push({
+              id: `task-ai-${Date.now()}-2`,
+              businessTitle: 'Security Hardening & Session Access Control',
+              businessDescription:
+                'Integrated two-factor authentication (TOTP) into the login pipeline and proactively upgraded dependencies to meet security compliance standards.',
+              suggestedHours: 2.0,
+              spentDate: dateRange.startDate,
+              sourceCommitShas: securityCommits.map((c) => c.sha.substring(0, 7)),
+            });
+          }
 
-        if (generatedItems.length === 0) {
-          generatedItems.push({
-            id: `task-ai-${Date.now()}-1`,
-            businessTitle: 'Manutenção Evolutiva e Correções no Sistema',
-            businessDescription:
-              'Desenvolvimento de melhorias contínuas, validação de regras de negócio e triagem de anomalias operacionais.',
-            suggestedHours: 1.5,
-            spentDate: dateRange.endDate,
-            sourceCommitShas: selectedCommits.map((c) => c.sha.substring(0, 7)),
-          });
+          if (generatedItems.length === 0) {
+            generatedItems.push({
+              id: `task-ai-${Date.now()}-1`,
+              businessTitle: 'Continuous System Engineering & Defect Resolution',
+              businessDescription:
+                'Ongoing platform enhancements, verification of core business rules, and technical resolution of operational anomalies.',
+              suggestedHours: 1.5,
+              spentDate: dateRange.endDate,
+              sourceCommitShas: selectedCommits.map((c) => c.sha.substring(0, 7)),
+            });
+          }
+        } else {
+          if (exportCommits.length > 0 || selectedCommits.length <= 2) {
+            const sourceShas = (exportCommits.length > 0 ? exportCommits : selectedCommits).map(
+              (c) => c.sha.substring(0, 7)
+            );
+            generatedItems.push({
+              id: `task-ai-${Date.now()}-1`,
+              businessTitle: 'Módulo de Exportação de Dados e Otimização de Relatórios',
+              businessDescription:
+                'Implementação do mecanismo de exportação em lote para formato Excel e correção nos filtros de unidades organizacionais, garantindo maior estabilidade no processamento de grandes volumes.',
+              suggestedHours: 2.5,
+              spentDate: dateRange.endDate,
+              sourceCommitShas: sourceShas,
+            });
+          }
+
+          if (securityCommits.length > 0 && selectedCommits.length > 2) {
+            generatedItems.push({
+              id: `task-ai-${Date.now()}-2`,
+              businessTitle: 'Melhorias de Segurança e Controlo de Acessos',
+              businessDescription:
+                'Integração de verificação em duas etapas (TOTP) no fluxo de autenticação e atualização preventiva de dependências para reforço dos padrões de segurança.',
+              suggestedHours: 2.0,
+              spentDate: dateRange.startDate,
+              sourceCommitShas: securityCommits.map((c) => c.sha.substring(0, 7)),
+            });
+          }
+
+          if (generatedItems.length === 0) {
+            generatedItems.push({
+              id: `task-ai-${Date.now()}-1`,
+              businessTitle: 'Manutenção Evolutiva e Correções no Sistema',
+              businessDescription:
+                'Desenvolvimento de melhorias contínuas, validação de regras de negócio e triagem de anomalias operacionais.',
+              suggestedHours: 1.5,
+              spentDate: dateRange.endDate,
+              sourceCommitShas: selectedCommits.map((c) => c.sha.substring(0, 7)),
+            });
+          }
         }
       }
 
@@ -734,11 +783,15 @@ export function App() {
     const defaultProj = projectAssignments.find((p) => p.project.id === defaultProjId);
     const defaultTaskId = savedMap?.taskId || defaultProj?.task_assignments?.[0]?.task?.id || null;
 
+    const isEnglish = generationLanguage === 'en';
     const newTask: WorkbenchTask = {
       id: `task-manual-${Date.now()}`,
-      businessTitle: 'Desenvolvimento e Suporte Técnico Especializado',
-      businessDescription:
-        'Atividades de engenharia de software, reuniões técnicas e suporte aos utilizadores da plataforma.',
+      businessTitle: isEnglish
+        ? 'Specialized Engineering & Technical Consulting'
+        : 'Desenvolvimento e Suporte Técnico Especializado',
+      businessDescription: isEnglish
+        ? 'Software engineering activities, technical architecture meetings, and platform support.'
+        : 'Atividades de engenharia de software, reuniões técnicas e suporte aos utilizadores da plataforma.',
       spentDate: dateRange.endDate,
       hours: 1.0,
       projectId: defaultProjId,
@@ -749,6 +802,116 @@ export function App() {
 
     setTasks((prev) => [newTask, ...prev]);
     addLog('info', 'Nova tarefa manual adicionada à bancada.', undefined, 'MANUAL_TASK');
+  };
+
+  // Translate individual task between EN and PT
+  const handleTranslateTask = async (taskId: string, targetLanguage?: 'en' | 'pt') => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    // Detect target language if not provided
+    const isPortuguese =
+      /[áéíóúãõçàâêô]/i.test(task.businessTitle + ' ' + task.businessDescription) ||
+      /\b(de|do|da|para|com|em|relatório|otimização|correção|melhoria|desenvolvimento)\b/i.test(
+        task.businessTitle
+      );
+    const target = targetLanguage || (isPortuguese ? 'en' : 'pt');
+
+    setTranslatingTaskId(taskId);
+    addLog(
+      'info',
+      `A traduzir tarefa #${task.id.slice(-4)} para ${target === 'en' ? 'Inglês' : 'Português'} com Gemini...`,
+      undefined,
+      'TRANSLATE'
+    );
+
+    try {
+      if (!isDemoMode && credentials.geminiApiKey) {
+        const gemini = new GeminiService(credentials.geminiApiKey);
+        const translated = await gemini.translateTask(task, target);
+        handleUpdateTask(taskId, {
+          businessTitle: translated.businessTitle,
+          businessDescription: translated.businessDescription,
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 400));
+        const translated = translateFallback(task.businessTitle, task.businessDescription, target);
+        handleUpdateTask(taskId, {
+          businessTitle: translated.title,
+          businessDescription: translated.description,
+        });
+      }
+      addLog(
+        'success',
+        `Tarefa traduzida para ${target === 'en' ? 'Inglês' : 'Português'} com sucesso!`,
+        200,
+        'TRANSLATE_OK'
+      );
+    } catch (err: any) {
+      addLog('error', `Falha ao traduzir: ${err.message}`, 500, 'TRANSLATE_ERROR');
+      alert(`Erro na tradução: ${err.message}`);
+    } finally {
+      setTranslatingTaskId(null);
+    }
+  };
+
+  // Translate all tasks to target language
+  const handleTranslateAllTasks = async (targetLanguage: 'en' | 'pt') => {
+    if (tasks.length === 0) return;
+
+    setIsTranslatingAll(true);
+    addLog(
+      'info',
+      `A traduzir todas as ${tasks.length} tarefas para ${targetLanguage === 'en' ? 'Inglês' : 'Português'} com Gemini...`,
+      undefined,
+      'TRANSLATE_ALL'
+    );
+
+    try {
+      if (!isDemoMode && credentials.geminiApiKey) {
+        const gemini = new GeminiService(credentials.geminiApiKey);
+        const translatedBatch = await gemini.translateTasks(tasks, targetLanguage);
+        setTasks((prev) =>
+          prev.map((t) => {
+            const match = translatedBatch.find((res) => res.id === t.id);
+            return match
+              ? {
+                  ...t,
+                  businessTitle: match.businessTitle,
+                  businessDescription: match.businessDescription,
+                }
+              : t;
+          })
+        );
+      } else {
+        await new Promise((r) => setTimeout(r, 500));
+        setTasks((prev) =>
+          prev.map((t) => {
+            const translated = translateFallback(
+              t.businessTitle,
+              t.businessDescription,
+              targetLanguage
+            );
+            return {
+              ...t,
+              businessTitle: translated.title,
+              businessDescription: translated.description,
+            };
+          })
+        );
+      }
+      addLog(
+        'success',
+        `Todas as ${tasks.length} tarefas traduzidas para ${targetLanguage === 'en' ? 'Inglês' : 'Português'} com sucesso!`,
+        200,
+        'TRANSLATE_ALL_OK'
+      );
+    } catch (err: any) {
+      addLog('error', `Falha na tradução em lote: ${err.message}`, 500, 'TRANSLATE_ERROR');
+      alert(`Erro na tradução em lote: ${err.message}`);
+    } finally {
+      setIsTranslatingAll(false);
+    }
   };
 
   const handleClearTasks = () => {
@@ -825,6 +988,12 @@ export function App() {
           onPushAllReadyToHarvest={handlePushAllReadyToHarvest}
           isPushingAll={isPushingAll}
           onApplyProjectToAll={handleApplyProjectToAll}
+          generationLanguage={generationLanguage}
+          onToggleGenerationLanguage={setGenerationLanguage}
+          onTranslateTask={handleTranslateTask}
+          onTranslateAllTasks={handleTranslateAllTasks}
+          translatingTaskId={translatingTaskId}
+          isTranslatingAll={isTranslatingAll}
         />
       </div>
 
