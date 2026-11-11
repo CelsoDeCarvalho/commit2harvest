@@ -1,18 +1,75 @@
 import { GeminiTaskItem, GitHubCommit } from '../types';
 
+/**
+ * Free AI providers, tried in this order until one answers:
+ *   1. Google Gemini (Free Tier Flash models)   - key from aistudio.google.com
+ *   2. Groq (free tier, open models)             - key from console.groq.com
+ *   3. OpenRouter (":free" models)               - key from openrouter.ai
+ * Only providers with a configured key are used.
+ */
+
+// Gemini Free Tier text models, best first. The "-latest" aliases are kept
+// up to date by Google, so they survive model retirements.
+const GEMINI_FREE_MODELS = [
+  'gemini-flash-lite-latest',
+  'gemini-flash-latest',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+];
+
+// Groq model ids change often, so the list is discovered at runtime and ranked by these patterns.
+const GROQ_MODEL_PREFERENCE = [/gpt-oss-120b/i, /llama-3\.3-70b/i, /llama-4/i, /qwen/i, /gpt-oss/i, /llama/i];
+const GROQ_FALLBACK_MODELS = ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'];
+
+// "openrouter/free" auto-routes to whichever free model is available.
+const OPENROUTER_FREE_MODELS = ['openrouter/free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free'];
+
+// Abort a slow model and fall through to the next one (gemini-flash-latest can take minutes).
+const REQUEST_TIMEOUT_MS = 45000;
+
+// Statuses that mean "try the next model": retired model, quota, bad request, server error, timeout.
+const RETRYABLE_STATUS = [400, 401, 403, 404, 413, 422, 429, 500, 502, 503, 504];
+
+// Flash variants that cannot produce plain text replies.
+const NON_TEXT_MODEL = /(tts|image|audio|live|embedding|omni|whisper|guard)/i;
+
+export interface AiProviderKeys {
+  groqApiKey?: string;
+  openRouterApiKey?: string;
+}
+
+type Schema = { type: string; properties?: Record<string, Schema>; items?: Schema; required?: string[] };
+
+class AiCallError extends Error {
+  constructor(message: string, public status = 0) {
+    super(message);
+  }
+}
+
 export class GeminiService {
   private apiKey: string;
+  private groqApiKey: string;
+  private openRouterApiKey: string;
   private cachedModel: string | null = null;
-  private defaultModel = 'gemini-2.0-flash';
+  private groqModels: string[] | null = null;
 
-  constructor(apiKey: string) {
-    this.apiKey = apiKey.trim();
+  /** "provider/model" that produced the last successful answer, for logging. */
+  lastModelUsed = '';
+
+  constructor(apiKey: string, keys: AiProviderKeys = {}) {
+    this.apiKey = (apiKey || '').trim();
+    this.groqApiKey = (keys.groqApiKey || '').trim();
+    this.openRouterApiKey = (keys.openRouterApiKey || '').trim();
+  }
+
+  get hasAnyKey(): boolean {
+    return !!(this.apiKey || this.groqApiKey || this.openRouterApiKey);
   }
 
   /**
-   * Dynamically query Google's ModelService.ListModels to discover
-   * the exact models currently active and supported by this API key.
-   * Explicitly prioritizes Free Tier FLASH models (avoiding Pro models with limit: 0).
+   * Query ListModels and pick the best Free Tier Flash model this key can use.
    */
   async getBestAvailableModel(): Promise<string> {
     if (this.cachedModel) return this.cachedModel;
@@ -29,70 +86,37 @@ export class GeminiService {
           .map((m: any) => (m.name || '').replace(/^models\//, ''))
           .filter(Boolean);
 
-        // Flash models prioritized for Free Tier accounts (0 RPM on Pro models)
-        const flashPriorities = [
-          'gemini-2.0-flash',
-          'gemini-1.5-flash',
-          'gemini-2.0-flash-lite',
-          'gemini-2.0-flash-lite-preview-02-05',
-          'gemini-1.5-flash-8b',
-          'gemini-2.0-flash-exp',
-          'gemini-1.5-flash-latest',
-        ];
+        const pick =
+          GEMINI_FREE_MODELS.find((m) => availableModels.includes(m)) ||
+          availableModels.find(
+            (m) => /flash/i.test(m) && !/pro|preview/i.test(m) && !NON_TEXT_MODEL.test(m)
+          );
 
-        // 1. Look for known Flash models
-        for (const preferred of flashPriorities) {
-          const match = availableModels.find((m) => m === preferred || m.startsWith(preferred));
-          if (match) {
-            this.cachedModel = match;
-            return match;
-          }
-        }
-
-        // 2. Look for any non-pro model containing "flash"
-        const anyFlash = availableModels.find(
-          (m) => m.toLowerCase().includes('flash') && !m.toLowerCase().includes('pro')
-        );
-        if (anyFlash) {
-          this.cachedModel = anyFlash;
-          return anyFlash;
-        }
-
-        // 3. Any model with "flash"
-        const anyFlashGeneral = availableModels.find((m) => m.toLowerCase().includes('flash'));
-        if (anyFlashGeneral) {
-          this.cachedModel = anyFlashGeneral;
-          return anyFlashGeneral;
-        }
-
-        // 4. Fallback to default
-        if (availableModels.length > 0) {
-          // Exclude experimental pro models with limit 0 if possible
-          const nonPro = availableModels.find((m) => !m.toLowerCase().includes('pro'));
-          if (nonPro) {
-            this.cachedModel = nonPro;
-            return nonPro;
-          }
+        if (pick) {
+          this.cachedModel = pick;
+          return pick;
         }
       }
     } catch (err) {
       console.warn('Could not list Gemini models:', err);
     }
 
-    this.cachedModel = this.defaultModel;
-    return this.defaultModel;
+    this.cachedModel = GEMINI_FREE_MODELS[0];
+    return this.cachedModel;
   }
 
   async testConnection(): Promise<{ success: boolean; modelName?: string; error?: string }> {
     try {
-      if (!this.apiKey) {
-        return { success: false, error: 'Chave Gemini API não fornecida' };
+      if (!this.hasAnyKey) {
+        return { success: false, error: 'Nenhuma chave de IA fornecida (Gemini, Groq ou OpenRouter)' };
       }
-
-      const model = await this.getBestAvailableModel();
-      return { success: true, modelName: model };
+      const providers: string[] = [];
+      if (this.apiKey) providers.push(`gemini/${await this.getBestAvailableModel()}`);
+      if (this.groqApiKey) providers.push('groq');
+      if (this.openRouterApiKey) providers.push('openrouter');
+      return { success: true, modelName: providers.join(' → ') };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Erro de rede ao conectar à API Gemini' };
+      return { success: false, error: err.message || 'Erro de rede ao conectar à API de IA' };
     }
   }
 
@@ -105,138 +129,99 @@ export class GeminiService {
       return [];
     }
 
-    if (!this.apiKey) {
-      throw new Error('Chave Gemini API ausente. Configure a chave nas Definições.');
+    if (!this.hasAnyKey) {
+      throw new Error('Chave de IA ausente. Configure Gemini, Groq ou OpenRouter nas Definições.');
     }
 
     const commitsData = commits.map((c) => ({
       sha: c.sha.substring(0, 7),
-      fullSha: c.sha,
       message: c.commit.message,
       date: c.commit.author.date.substring(0, 10),
       author: c.commit.author.name,
+      ...(c.changeSummary ? { codeChanges: c.changeSummary } : {}),
     }));
 
     const isEnglish = language === 'en';
 
     const systemPrompt = isEnglish
       ? `You are a Principal Technical Lead and Senior Project Manager creating formal Harvest timesheet entries.
-Your task is to convert EACH software commit into its OWN individual executive Harvest timesheet task (1-to-1 mapping: 1 commit = 1 task).
+Your task is to convert EACH software commit into its OWN individual Harvest timesheet task (1-to-1 mapping: 1 commit = 1 task).
 Write exclusively in professional, corporate ENGLISH suitable for client timesheet reports.
+
+Each commit has a 'message' and, when available, 'codeChanges': the files touched, lines added/removed and an excerpt of the diff.
+READ THE CODE CHANGES CAREFULLY: they are the main source of truth about what was actually done. The commit message is often short or vague.
 
 Mandatory transformation rules:
 1. 1 COMMIT = 1 TASK. For every commit provided in the input, output exactly one corresponding task object. Do NOT merge different commits together.
-2. 'businessTitle': A concise, corporate title focused on user value or business deliverable (e.g. "Event Details Modal & Interactive Row-Click Integration", "DHIS2 Rules Engine Integration in Event Modal").
-3. 'businessDescription': An elevated, professional Harvest timesheet note.
-   CRITICAL CONSTRAINT: Must be SHORT, varying between 1 and 2 lines (approx 80-180 characters). Must be clear, direct, and explain WHAT was delivered or fixed and its operational benefit without fluff or unnecessary details.
+2. 'businessTitle': A concise, corporate title focused on the feature or deliverable (e.g. "Event Details Modal & Interactive Row-Click Integration").
+3. 'businessDescription': A COMPLETE description of the work, 2 to 4 sentences (approx 250-600 characters):
+   - what was implemented, fixed or refactored, based on the code changes;
+   - which screens, forms, tables, rules or modules were affected (name them in functional terms);
+   - the practical benefit for users or for the system.
+   Write for a client: no file paths, no function/variable names, no SHAs, no code. Describe only what the changes show; never invent features.
+   For merge commits, describe the work the merge brings in.
 4. 'spentDate': Must strictly match the commit's exact author date (YYYY-MM-DD).
 5. 'sourceCommitShas': Array with exactly this commit's 7-character SHA.
-6. 'suggestedHours': Realistic hour estimate based on technical complexity and scope. Commits on the same date must be calibrated so their daily sum reaches approximately 8.0 hours (a standard workday). Complex features/architecture take 2.0 to 4.0h, moderate fixes/integrations take 1.0 to 2.0h, and minor chores/styling/renaming take 0.25 to 0.75h. Must be multiples of 0.25.
-7. Return only the strict JSON array schema requested.`
+6. 'suggestedHours': Realistic hour estimate based on the real size of the change (files changed, lines added/removed) and its complexity. Commits on the same date must be calibrated so their daily sum reaches approximately 8.0 hours. Complex features/architecture take 2.0 to 4.0h, moderate fixes/integrations 1.0 to 2.0h, minor chores/styling/renaming 0.25 to 0.75h. Must be multiples of 0.25.
+7. Return only the strict JSON requested.`
       : `Você é um Principal Technical Lead e Gestor de Projetos sénior a gerar notas de timesheet para o Harvest.
-A sua tarefa é converter CADA commit de software na sua PRÓPRIA tarefa executiva individual para o Harvest (relação 1 para 1: 1 commit = 1 tarefa).
+A sua tarefa é converter CADA commit de software na sua PRÓPRIA tarefa individual para o Harvest (relação 1 para 1: 1 commit = 1 tarefa).
 Escreva exclusivamente em PORTUGUÊS formal e profissional adequado para relatórios de clientes.
 
+Cada commit tem uma 'message' e, quando disponível, 'codeChanges': os ficheiros alterados, linhas adicionadas/removidas e um excerto do diff.
+LEIA COM ATENÇÃO AS ALTERAÇÕES DE CÓDIGO: são a principal fonte sobre o que foi realmente feito. A mensagem do commit é muitas vezes curta ou vaga.
+
 Regras obrigatórias de transformação:
-1. 1 COMMIT = 1 TAREFA. Para cada commit fornecido na entrada, gere exatamente um objeto de tarefa correspondente. NÃO junte commits diferentes numa única tarefa.
-2. 'businessTitle': Título conciso, corporativo e com foco no utilizador ou na funcionalidade entregue.
-3. 'businessDescription': Uma nota de timesheet executiva formatada para o Harvest.
-   RESTRIÇÃO CRÍTICA: Deve ser CURTA, variando entre 1 a 2 linhas (cerca de 80 a 180 caracteres). Deve ser clara, direta e explicar O QUE foi entregue ou corrigido e o benefício operacional, sem rodeios nem parágrafos longos.
+1. 1 COMMIT = 1 TAREFA. Para cada commit fornecido, gere exatamente um objeto de tarefa. NÃO junte commits diferentes.
+2. 'businessTitle': Título conciso e corporativo focado na funcionalidade ou entrega.
+3. 'businessDescription': Uma descrição COMPLETA do trabalho, 2 a 4 frases (cerca de 250 a 600 caracteres):
+   - o que foi implementado, corrigido ou reestruturado, com base nas alterações de código;
+   - que ecrãs, formulários, tabelas, regras ou módulos foram afetados (em termos funcionais);
+   - o benefício prático para os utilizadores ou para o sistema.
+   Escreva para um cliente: sem caminhos de ficheiros, sem nomes de funções/variáveis, sem SHAs, sem código. Descreva apenas o que as alterações mostram; nunca invente funcionalidades.
+   Para commits de merge, descreva o trabalho que o merge integra.
 4. 'spentDate': Deve corresponder estritamente à data exata do commit (formato YYYY-MM-DD).
 5. 'sourceCommitShas': Array contendo apenas o SHA de 7 caracteres deste commit.
-6. 'suggestedHours': Estimativa realista de horas com base na complexidade e escopo técnico. Os commits na mesma data devem ser calibrados de modo a que a soma diária alcance aproximadamente 8.0 horas (uma jornada de trabalho padrão). Funcionalidades complexas/arquitetura levam 2.0 a 4.0h, correções/integrações médias levam 1.0 a 2.0h, e ajustes menores/estilo/renomeações levam 0.25 a 0.75h. Deve ser múltiplo de 0.25.
-7. Retorne apenas o schema JSON estrito solicitado.`;
+6. 'suggestedHours': Estimativa realista de horas com base no tamanho real da alteração (ficheiros alterados, linhas adicionadas/removidas) e na complexidade. Os commits na mesma data devem somar aproximadamente 8.0 horas. Funcionalidades complexas/arquitetura 2.0 a 4.0h, correções/integrações médias 1.0 a 2.0h, ajustes menores/estilo/renomeações 0.25 a 0.75h. Deve ser múltiplo de 0.25.
+7. Retorne apenas o JSON estrito solicitado.`;
 
     const userPrompt = isEnglish
-      ? `Analyze and group the following ${commits.length} commits from repository ${repoName || 'the project'}:
+      ? `Generate one timesheet task for each of the following ${commits.length} commits from repository ${repoName || 'the project'}:
 
-${JSON.stringify(commitsData, null, 2)}
+${JSON.stringify(commitsData, null, 2)}`
+      : `Gere uma tarefa de timesheet para cada um dos seguintes ${commits.length} commits do repositório ${repoName || 'do projeto'}:
 
-Group the logical commits and generate the timesheet tasks in English JSON format matching the schema.`
-      : `Analise e agrupe os seguintes ${commits.length} commits do repositório ${repoName || 'do projeto'}:
+${JSON.stringify(commitsData, null, 2)}`;
 
-${JSON.stringify(commitsData, null, 2)}
-
-Agrupe os commits lógicos e gere as tarefas em formato JSON conforme o schema.`;
-
-    const payload = {
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userPrompt }],
+    const schema: Schema = {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          id: { type: 'STRING' },
+          businessTitle: { type: 'STRING' },
+          businessDescription: { type: 'STRING' },
+          suggestedHours: { type: 'NUMBER' },
+          spentDate: { type: 'STRING' },
+          sourceCommitShas: { type: 'ARRAY', items: { type: 'STRING' } },
         },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'ARRAY',
-          items: {
-            type: 'OBJECT',
-            properties: {
-              id: { type: 'STRING' },
-              businessTitle: { type: 'STRING' },
-              businessDescription: { type: 'STRING' },
-              suggestedHours: { type: 'NUMBER' },
-              spentDate: { type: 'STRING' },
-              sourceCommitShas: {
-                type: 'ARRAY',
-                items: { type: 'STRING' },
-              },
-            },
-            required: [
-              'id',
-              'businessTitle',
-              'businessDescription',
-              'suggestedHours',
-              'spentDate',
-              'sourceCommitShas',
-            ],
-          },
-        },
+        required: ['id', 'businessTitle', 'businessDescription', 'suggestedHours', 'spentDate', 'sourceCommitShas'],
       },
     };
 
-    // Execute request with dynamic model discovery and fallback
-    const response = await this.executeWithModelFallback(payload);
-
-    if (!response.ok) {
-      const errText = await response.text();
-      let errorMsg = `Erro ${response.status}: ${response.statusText}`;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed.error?.message) {
-          errorMsg = parsed.error.message;
-        }
-      } catch {
-        // ignore
-      }
-      throw new Error(`Erro na API Gemini: ${errorMsg}`);
+    const parsedTasks = await this.generateJson<GeminiTaskItem[]>(systemPrompt, userPrompt, schema);
+    if (!Array.isArray(parsedTasks)) {
+      throw new Error('A IA não devolveu uma lista de tarefas.');
     }
 
-    const data = await response.json();
-    const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!candidate) {
-      throw new Error('Nenhuma resposta estruturada retornada pelo modelo Gemini.');
-    }
-
-    try {
-      const parsedTasks: GeminiTaskItem[] = JSON.parse(candidate);
-      return parsedTasks.map((t, idx) => ({
-        id: t.id || `task-${Date.now()}-${idx + 1}`,
-        businessTitle: t.businessTitle || 'Tarefa de Desenvolvimento',
-        businessDescription: t.businessDescription || '',
-        suggestedHours: Math.max(0.25, Number(t.suggestedHours) || 1.0),
-        spentDate: t.spentDate || new Date().toISOString().substring(0, 10),
-        sourceCommitShas: Array.isArray(t.sourceCommitShas) ? t.sourceCommitShas : [],
-      }));
-    } catch (parseErr: any) {
-      console.error('Failed to parse Gemini JSON output:', candidate, parseErr);
-      throw new Error('Não foi possível interpretar o JSON retornado pela IA Gemini.');
-    }
+    return parsedTasks.map((t, idx) => ({
+      id: t.id || `task-${Date.now()}-${idx + 1}`,
+      businessTitle: t.businessTitle || 'Tarefa de Desenvolvimento',
+      businessDescription: t.businessDescription || '',
+      suggestedHours: Math.max(0.25, Number(t.suggestedHours) || 1.0),
+      spentDate: t.spentDate || new Date().toISOString().substring(0, 10),
+      sourceCommitShas: Array.isArray(t.sourceCommitShas) ? t.sourceCommitShas : [],
+    }));
   }
 
   async translateTasks(
@@ -244,16 +229,16 @@ Agrupe os commits lógicos e gere as tarefas em formato JSON conforme o schema.`
     targetLanguage: 'en' | 'pt' = 'en'
   ): Promise<{ id: string; businessTitle: string; businessDescription: string }[]> {
     if (!tasks || tasks.length === 0) return [];
-    if (!this.apiKey) {
-      throw new Error('Chave Gemini API ausente. Configure a chave nas Definições.');
+    if (!this.hasAnyKey) {
+      throw new Error('Chave de IA ausente. Configure Gemini, Groq ou OpenRouter nas Definições.');
     }
 
     const langName = targetLanguage === 'en' ? 'ENGLISH' : 'PORTUGUESE';
     const systemPrompt = `You are an expert bilingual corporate technical translator.
 Translate the business title and business description of each software development timesheet task into professional, executive-level ${langName}.
-Maintain high corporate standards suitable for Harvest client timesheets.
+Keep the full meaning and length of the description; do not summarize.
 Preserve the exact 'id' for each item.
-Return only the strict JSON array schema requested.`;
+Return only the strict JSON requested.`;
 
     const userPrompt = `Translate the following ${tasks.length} tasks into executive-level ${langName}:\n\n${JSON.stringify(
       tasks.map((t) => ({ id: t.id, businessTitle: t.businessTitle, businessDescription: t.businessDescription })),
@@ -261,48 +246,25 @@ Return only the strict JSON array schema requested.`;
       2
     )}`;
 
-    const payload = {
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'ARRAY',
-          items: {
-            type: 'OBJECT',
-            properties: {
-              id: { type: 'STRING' },
-              businessTitle: { type: 'STRING' },
-              businessDescription: { type: 'STRING' },
-            },
-            required: ['id', 'businessTitle', 'businessDescription'],
-          },
+    const schema: Schema = {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          id: { type: 'STRING' },
+          businessTitle: { type: 'STRING' },
+          businessDescription: { type: 'STRING' },
         },
+        required: ['id', 'businessTitle', 'businessDescription'],
       },
     };
 
-    // Execute translation request with dynamic model discovery and fallback
-    const response = await this.executeWithModelFallback(payload);
-
-    if (!response.ok) {
-      const errText = await response.text();
-      let errorMsg = `Erro ${response.status}: ${response.statusText}`;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed.error?.message) errorMsg = parsed.error.message;
-      } catch {
-        // ignore
-      }
-      throw new Error(`Erro na tradução com Gemini: ${errorMsg}`);
-    }
-
-    const data = await response.json();
-    const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidate) {
-      throw new Error('Nenhuma resposta retornada pelo modelo Gemini para tradução.');
-    }
-
-    return JSON.parse(candidate);
+    const result = await this.generateJson<{ id: string; businessTitle: string; businessDescription: string }[]>(
+      systemPrompt,
+      userPrompt,
+      schema
+    );
+    return Array.isArray(result) ? result : [];
   }
 
   async translateTask(
@@ -319,142 +281,316 @@ Return only the strict JSON array schema requested.`;
     throw new Error('Falha ao traduzir tarefa.');
   }
 
+  /**
+   * @param commitDetails one entry per commit: the message, followed by its code changes when available.
+   */
   async improveTaskDescription(
     taskTitle: string,
     currentDescription: string,
-    commitMessages: string[],
+    commitDetails: string[],
     language: 'en' | 'pt' = 'en'
   ): Promise<{ businessTitle: string; businessDescription: string }> {
-    if (!this.apiKey) {
-      throw new Error('Chave Gemini API ausente.');
+    if (!this.hasAnyKey) {
+      throw new Error('Chave de IA ausente.');
     }
 
     const isEnglish = language === 'en';
     const systemPrompt = isEnglish
       ? `You are an elite Principal Technical Product Lead and executive writer.
-Your job is to read raw Git commit messages and elevate them into a pristine, executive-level timesheet description and title in corporate ENGLISH.
+Your job is to read Git commits (message AND code changes) and write a complete, executive-level timesheet title and description in corporate ENGLISH.
 CRITICAL MANDATORY RULES:
-1. Thoroughly read each commit message and body. Identify the specific feature, bug fix, or refactoring.
-2. 'businessTitle': A concise, corporate title focused on user value (e.g. "Event Details Modal & Interactive Row-Click Integration").
-3. 'businessDescription': Clear, professional Harvest timesheet note. CRITICAL CONSTRAINT: Must be SHORT: between 1 and 2 lines (approx 80-180 characters). Explain WHAT was built or fixed and the direct operational benefit without fluff or unnecessary details.
-4. FORBIDDEN: NEVER use generic boilerplate or placeholder text like "Completed core implementation and functional adjustments based on commits" or "stabilizing business rules and user-facing workflows".
+1. Read the code changes carefully: they show what was really done. The commit message may be short or vague.
+2. 'businessTitle': A concise, corporate title focused on the feature or deliverable.
+3. 'businessDescription': A COMPLETE description, 2 to 4 sentences (approx 250-600 characters): what was implemented or fixed, which screens/forms/rules/modules were affected (in functional terms) and the practical benefit. No file paths, no function names, no code. Never invent features the changes do not show.
+4. FORBIDDEN: generic boilerplate such as "Completed core implementation and functional adjustments based on commits".
 5. Return strictly a JSON object with 'businessTitle' and 'businessDescription'.`
       : `Você é um Principal Technical Product Lead e redator executivo de topo.
-O seu trabalho é ler as mensagens originais de commit do Git e elevá-las para uma descrição de entrega e título executivos para o Harvest em PORTUGUÊS formal.
+O seu trabalho é ler commits do Git (mensagem E alterações de código) e escrever um título e uma descrição completos e executivos para o Harvest em PORTUGUÊS formal.
 REGRAS CRÍTICAS OBRIGATÓRIAS:
-1. Leia atentamente cada commit. Identifique a funcionalidade específica, correção ou melhoria.
-2. 'businessTitle': Título conciso e corporativo com foco no utilizador ou negócio.
-3. 'businessDescription': Nota de timesheet clara e executiva para o Harvest. RESTRIÇÃO CRÍTICA: Deve ser CURTA, variando entre 1 a 2 linhas (cerca de 80 a 180 caracteres). Explique O QUE foi construído ou corrigido e o BENEFÍCIO REAL para os utilizadores, sem rodeios.
-4. PROIBIDO: NUNCA utilize frases genéricas ou templates repetitivos como "Completed core implementation" ou "Implementação e validação de requisitos técnicos para X commits".
+1. Leia com atenção as alterações de código: mostram o que foi realmente feito. A mensagem do commit pode ser curta ou vaga.
+2. 'businessTitle': Título conciso e corporativo focado na funcionalidade ou entrega.
+3. 'businessDescription': Uma descrição COMPLETA, 2 a 4 frases (cerca de 250 a 600 caracteres): o que foi implementado ou corrigido, que ecrãs/formulários/regras/módulos foram afetados (em termos funcionais) e o benefício prático. Sem caminhos de ficheiros, sem nomes de funções, sem código. Nunca invente funcionalidades que as alterações não mostram.
+4. PROIBIDO: frases genéricas como "Implementação e validação de requisitos técnicos para X commits".
 5. Retorne estritamente um objeto JSON com 'businessTitle' e 'businessDescription'.`;
 
-    const userPrompt = `Read the original commits and elevate the task deliverables:
-Current Title: ${taskTitle}
+    const userPrompt = `Current Title: ${taskTitle}
 Current Description: ${currentDescription}
 
 Original Git Commits:
-${commitMessages.length > 0 ? commitMessages.map((m, i) => `Commit ${i + 1}:\n${m}`).join('\n---\n') : '(No commit details, elevate current title/description)'}
+${commitDetails.length > 0 ? commitDetails.map((m, i) => `Commit ${i + 1}:\n${m}`).join('\n---\n') : '(No commit details, elevate current title/description)'}
 
-Generate the improved executive title and non-technical business description in ${isEnglish ? 'English' : 'Portuguese'} as JSON.`;
+Write the improved title and complete description in ${isEnglish ? 'English' : 'Portuguese'} as JSON.`;
 
+    const schema: Schema = {
+      type: 'OBJECT',
+      properties: {
+        businessTitle: { type: 'STRING' },
+        businessDescription: { type: 'STRING' },
+      },
+      required: ['businessTitle', 'businessDescription'],
+    };
+
+    const parsed = await this.generateJson<{ businessTitle?: string; businessDescription?: string }>(
+      systemPrompt,
+      userPrompt,
+      schema
+    );
+    return {
+      businessTitle: parsed?.businessTitle || taskTitle,
+      businessDescription: parsed?.businessDescription || currentDescription,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Provider chain
+  // ---------------------------------------------------------------------------
+
+  /** Ask each configured free provider in turn and return the first valid JSON answer. */
+  private async generateJson<T>(systemPrompt: string, userPrompt: string, schema: Schema): Promise<T> {
+    const errors: string[] = [];
+
+    if (this.apiKey) {
+      try {
+        return await this.generateWithGemini<T>(systemPrompt, userPrompt, schema);
+      } catch (err: any) {
+        errors.push(`Gemini: ${err.message}`);
+        console.warn('Gemini failed, trying next free provider:', err.message);
+      }
+    }
+
+    if (this.groqApiKey) {
+      try {
+        const models = await this.getGroqModels();
+        return await this.generateWithOpenAiCompatible<T>(
+          'groq',
+          'https://api.groq.com/openai/v1/chat/completions',
+          this.groqApiKey,
+          models,
+          systemPrompt,
+          userPrompt,
+          schema,
+          true
+        );
+      } catch (err: any) {
+        errors.push(`Groq: ${err.message}`);
+        console.warn('Groq failed, trying next free provider:', err.message);
+      }
+    }
+
+    if (this.openRouterApiKey) {
+      try {
+        return await this.generateWithOpenAiCompatible<T>(
+          'openrouter',
+          'https://openrouter.ai/api/v1/chat/completions',
+          this.openRouterApiKey,
+          OPENROUTER_FREE_MODELS,
+          systemPrompt,
+          userPrompt,
+          schema,
+          false
+        );
+      } catch (err: any) {
+        errors.push(`OpenRouter: ${err.message}`);
+        console.warn('OpenRouter failed:', err.message);
+      }
+    }
+
+    if (errors.length === 0) {
+      throw new Error('Chave de IA ausente. Configure Gemini, Groq ou OpenRouter nas Definições.');
+    }
+    throw new Error(`Todas as IAs gratuitas falharam. ${errors.join(' | ')}`);
+  }
+
+  private async generateWithGemini<T>(systemPrompt: string, userPrompt: string, schema: Schema): Promise<T> {
     const payload = {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            businessTitle: { type: 'STRING' },
-            businessDescription: { type: 'STRING' },
-          },
-          required: ['businessTitle', 'businessDescription'],
-        },
+        responseSchema: schema,
       },
     };
 
-    const response = await this.executeWithModelFallback(payload);
-    if (!response.ok) {
-      const errText = await response.text();
-      let msg = `HTTP ${response.status}`;
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed.error?.message) msg = parsed.error.message;
-      } catch {
-        // ignore
-      }
-      throw new Error(`Gemini API error: ${msg}`);
-    }
-
-    const data = await response.json();
-    const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidate) {
-      throw new Error('Nenhuma resposta retornada pela IA.');
-    }
-
-    const parsed = JSON.parse(candidate);
-    return {
-      businessTitle: parsed.businessTitle || taskTitle,
-      businessDescription: parsed.businessDescription || currentDescription,
-    };
-  }
-
-  private async executeWithModelFallback(payload: any): Promise<Response> {
     const primary = await this.getBestAvailableModel();
-    let response = await this.callGeminiApi(primary, payload);
+    const candidates = [primary, ...GEMINI_FREE_MODELS.filter((m) => m !== primary)];
+    let lastError = '';
 
-    // If 404 (Not Found), 429 (Quota Exceeded / Rate Limit), 403 (Forbidden), or 400 (Bad Request)
-    if (!response.ok && [400, 403, 404, 429].includes(response.status)) {
-      console.warn(`Gemini model ${primary} returned ${response.status}, attempting Free Tier Flash fallbacks...`);
-
-      const candidateModels = [
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-2.0-flash-lite',
-        'gemini-1.5-flash-8b',
-        'gemini-2.0-flash-exp',
-      ].filter((m) => m !== primary);
-
-      for (const fallback of candidateModels) {
-        response = await this.callGeminiApi(fallback, payload);
-        if (response.ok) {
-          this.cachedModel = fallback;
-          console.info(`Gemini successfully switched to model: ${fallback}`);
-          return response;
-        }
-      }
-
-      // Also attempt v1 stable endpoint if v1beta failed
-      for (const fallback of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
-        response = await fetch(
-          `https://generativelanguage.googleapis.com/v1/models/${fallback}:generateContent?key=${this.apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          }
+    for (const model of candidates) {
+      try {
+        const response = await this.fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
         );
-        if (response.ok) {
-          this.cachedModel = fallback;
-          return response;
+        if (!response.ok) {
+          throw new AiCallError(await this.readError(response), response.status);
         }
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new AiCallError('resposta vazia');
+
+        const parsed = this.parseJson<T>(text, schema);
+        this.cachedModel = model;
+        this.lastModelUsed = `gemini/${model}`;
+        return parsed;
+      } catch (err: any) {
+        lastError = `${model}: ${err.message}`;
+        if (err instanceof AiCallError && err.status && !RETRYABLE_STATUS.includes(err.status)) break;
+        console.warn(`Gemini model ${model} failed (${err.message}), trying next...`);
       }
     }
-
-    return response;
+    throw new Error(lastError || 'sem modelos disponíveis');
   }
 
-  private async callGeminiApi(model: string, body: any): Promise<Response> {
-    const cleanModel = model.replace(/^models\//, '');
-    return fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
+  /** Groq and OpenRouter both speak the OpenAI chat-completions protocol. */
+  private async generateWithOpenAiCompatible<T>(
+    provider: string,
+    url: string,
+    apiKey: string,
+    models: string[],
+    systemPrompt: string,
+    userPrompt: string,
+    schema: Schema,
+    useJsonMode: boolean
+  ): Promise<T> {
+    // JSON mode requires a top-level object, so arrays are wrapped in {"items": [...]}.
+    const wrapped = schema.type === 'ARRAY';
+    const jsonSchema = wrapped ? { type: 'object', properties: { items: toJsonSchema(schema) }, required: ['items'] } : toJsonSchema(schema);
+    const fullSystem = `${systemPrompt}
+
+Respond with ONLY a valid JSON object (no markdown, no commentary) that matches this JSON Schema:
+${JSON.stringify(jsonSchema)}`;
+
+    let lastError = '';
+    for (const model of models) {
+      try {
+        const response = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+            ...(provider === 'openrouter' ? { 'X-Title': 'Commit2Harvest' } : {}),
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.3,
+            messages: [
+              { role: 'system', content: fullSystem },
+              { role: 'user', content: userPrompt },
+            ],
+            ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
+          }),
+        });
+        if (!response.ok) {
+          throw new AiCallError(await this.readError(response), response.status);
+        }
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        if (!text) throw new AiCallError(data.error?.message || 'resposta vazia');
+
+        let parsed: any = this.parseJson<any>(text, wrapped ? { type: 'OBJECT' } : schema);
+        if (wrapped) {
+          parsed = Array.isArray(parsed) ? parsed : parsed?.items ?? Object.values(parsed || {}).find(Array.isArray);
+          if (!Array.isArray(parsed)) throw new AiCallError('JSON sem lista "items"');
+        }
+        this.lastModelUsed = `${provider}/${data.model || model}`;
+        return parsed as T;
+      } catch (err: any) {
+        lastError = `${model}: ${err.message}`;
+        if (err instanceof AiCallError && err.status === 401) break; // bad key: other models won't help
+        console.warn(`${provider} model ${model} failed (${err.message}), trying next...`);
       }
+    }
+    throw new Error(lastError || 'sem modelos disponíveis');
+  }
+
+  private async getGroqModels(): Promise<string[]> {
+    if (this.groqModels) return this.groqModels;
+    try {
+      const response = await this.fetchWithTimeout('https://api.groq.com/openai/v1/models', {
+        headers: { Authorization: `Bearer ${this.groqApiKey}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const ids: string[] = (data.data || [])
+          .filter((m: any) => m.active !== false)
+          .map((m: any) => m.id as string)
+          .filter((id: string) => !NON_TEXT_MODEL.test(id));
+        const ranked: string[] = [];
+        for (const pattern of GROQ_MODEL_PREFERENCE) {
+          for (const id of ids) if (pattern.test(id) && !ranked.includes(id)) ranked.push(id);
+        }
+        if (ranked.length > 0) {
+          this.groqModels = ranked.slice(0, 4);
+          return this.groqModels;
+        }
+      }
+    } catch (err) {
+      console.warn('Could not list Groq models:', err);
+    }
+    this.groqModels = GROQ_FALLBACK_MODELS;
+    return this.groqModels;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        throw new AiCallError(`timeout após ${REQUEST_TIMEOUT_MS / 1000}s`, 504);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async readError(response: Response): Promise<string> {
+    const text = await response.text();
+    try {
+      const parsed = JSON.parse(text);
+      return `HTTP ${response.status}: ${parsed.error?.message || parsed.message || text.slice(0, 200)}`;
+    } catch {
+      return `HTTP ${response.status}: ${text.slice(0, 200)}`;
+    }
+  }
+
+  /** Parse model output, tolerating ```json fences or text around the JSON. */
+  private parseJson<T>(text: string, schema: Schema): T {
+    const cleaned = text.replace(/```(?:json)?/gi, '').trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      const open = schema.type === 'ARRAY' ? '[' : '{';
+      const close = schema.type === 'ARRAY' ? ']' : '}';
+      const start = cleaned.indexOf(open);
+      const end = cleaned.lastIndexOf(close);
+      if (start >= 0 && end > start) {
+        try {
+          return JSON.parse(cleaned.slice(start, end + 1));
+        } catch {
+          // fall through
+        }
+      }
+      throw new AiCallError('a IA devolveu JSON inválido');
+    }
+  }
+}
+
+/** Convert a Gemini-style schema (uppercase types) into standard JSON Schema. */
+function toJsonSchema(schema: Schema): any {
+  const out: any = { type: schema.type.toLowerCase() };
+  if (schema.properties) {
+    out.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([key, value]) => [key, toJsonSchema(value)])
     );
   }
+  if (schema.items) out.items = toJsonSchema(schema.items);
+  if (schema.required) out.required = schema.required;
+  return out;
 }

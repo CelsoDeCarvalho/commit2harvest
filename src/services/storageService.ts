@@ -17,6 +17,8 @@ export const storageService = {
       return {
         githubToken: parsed.githubToken || import.meta.env.VITE_GITHUB_TOKEN || '',
         geminiApiKey: parsed.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || '',
+        groqApiKey: parsed.groqApiKey || import.meta.env.VITE_GROQ_API_KEY || '',
+        openRouterApiKey: parsed.openRouterApiKey || import.meta.env.VITE_OPENROUTER_API_KEY || '',
         harvestAccountId: parsed.harvestAccountId || import.meta.env.VITE_HARVEST_ACCOUNT_ID || '',
         harvestAccessToken: parsed.harvestAccessToken || import.meta.env.VITE_HARVEST_ACCESS_TOKEN || '',
         githubAuthorFilter: parsed.githubAuthorFilter || '',
@@ -25,6 +27,8 @@ export const storageService = {
       return {
         githubToken: import.meta.env.VITE_GITHUB_TOKEN || '',
         geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
+        groqApiKey: import.meta.env.VITE_GROQ_API_KEY || '',
+        openRouterApiKey: import.meta.env.VITE_OPENROUTER_API_KEY || '',
         harvestAccountId: import.meta.env.VITE_HARVEST_ACCOUNT_ID || '',
         harvestAccessToken: import.meta.env.VITE_HARVEST_ACCESS_TOKEN || '',
         githubAuthorFilter: '',

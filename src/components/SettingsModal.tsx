@@ -172,7 +172,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center space-x-1 text-[11px] font-mono">
                     {connectionStatus.gemini === 'connected' && (
                       <span className="text-[#238636] flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> CONNECTED (gemini-2.5-flash)
+                        <CheckCircle2 className="w-3 h-3" /> CONNECTED (Free Tier Flash)
                       </span>
                     )}
                     {connectionStatus.gemini === 'error' && (
@@ -200,6 +200,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     Google AI Studio
                   </a>
                   . Usado para agrupar e traduzir commits técnicos em tarefas executivas.
+                </p>
+              </div>
+
+              {/* Free fallback AI providers */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center space-x-1.5">
+                  <Sparkles className="w-3 h-3 text-[#8b949e]" />
+                  <span>IAs gratuitas de reserva (opcional)</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="password"
+                    placeholder="Groq API Key (gsk_...)"
+                    value={formData.groqApiKey || ''}
+                    onChange={(e) => handleChange('groqApiKey', e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] px-3 py-1.5 text-xs font-mono text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7]"
+                  />
+                  <input
+                    type="password"
+                    placeholder="OpenRouter API Key (sk-or-...)"
+                    value={formData.openRouterApiKey || ''}
+                    onChange={(e) => handleChange('openRouterApiKey', e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] px-3 py-1.5 text-xs font-mono text-[#e6edf3] placeholder-[#484f58] focus:border-[#2f81f7]"
+                  />
+                </div>
+                <p className="text-[11px] text-[#8b949e]">
+                  Usadas quando o Gemini falha ou atinge a quota. Chaves gratuitas em{' '}
+                  <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-[#2f81f7] hover:underline">
+                    console.groq.com
+                  </a>{' '}
+                  e{' '}
+                  <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer" className="text-[#2f81f7] hover:underline">
+                    openrouter.ai
+                  </a>
+                  .
                 </p>
               </div>
 

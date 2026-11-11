@@ -134,6 +134,14 @@ export function App() {
     []
   );
 
+  // AI: Gemini first, then the free Groq / OpenRouter fallbacks when their keys are set
+  const hasAiKey = !!(credentials.geminiApiKey || credentials.groqApiKey || credentials.openRouterApiKey);
+  const createAiService = (creds: ApiCredentials = credentials) =>
+    new GeminiService(creds.geminiApiKey, {
+      groqApiKey: creds.groqApiKey,
+      openRouterApiKey: creds.openRouterApiKey,
+    });
+
   // Test connections to GitHub, Gemini, and Harvest
   const handleTestConnections = useCallback(
     async (credsToTest?: ApiCredentials) => {
@@ -166,14 +174,14 @@ export function App() {
       }
 
       // 2. Test Gemini
-      if (activeCreds.geminiApiKey) {
+      if (activeCreds.geminiApiKey || activeCreds.groqApiKey || activeCreds.openRouterApiKey) {
         nextStatus.gemini = 'testing';
         setConnectionStatus({ ...nextStatus });
-        const gemini = new GeminiService(activeCreds.geminiApiKey);
+        const gemini = createAiService(activeCreds);
         const gemResult = await gemini.testConnection();
         if (gemResult.success) {
           nextStatus.gemini = 'connected';
-          addLog('success', `Google Gemini API conectado (${gemResult.modelName})`, 200, 'GET /models');
+          addLog('success', `IA conectada (${gemResult.modelName})`, 200, 'GET /models');
         } else {
           nextStatus.gemini = 'error';
           addLog('error', `Falha Gemini: ${gemResult.error}`, 400, 'GEMINI /models');
@@ -714,14 +722,24 @@ export function App() {
     try {
       let generatedItems: GeminiTaskItem[];
 
-      if (!isDemoMode && credentials.geminiApiKey) {
+      if (!isDemoMode && hasAiKey) {
         try {
-          const gemini = new GeminiService(credentials.geminiApiKey);
+          const gemini = createAiService();
+          const { commits: commitsWithChanges, withChanges } = await new GitHubService(
+            credentials.githubToken
+          ).attachChangeSummaries(selectedCommits, selectedRepo);
+          addLog(
+            'info',
+            `Alterações de código lidas para ${withChanges}/${selectedCommits.length} commits. A gerar descrições com IA...`,
+            200,
+            'GET /commits/{sha}'
+          );
           generatedItems = await gemini.transformCommitsToTasks(
-            selectedCommits,
+            commitsWithChanges,
             selectedRepo,
             generationLanguage
           );
+          addLog('success', `Descrições geradas por ${gemini.lastModelUsed}`, 200, 'AI_MODEL');
           // Calibrate hours by day targeting ~8.0h per workday based on commit complexity
           generatedItems = calibrateDailyHours(generatedItems, selectedCommits);
         } catch (apiErr: any) {
@@ -986,9 +1004,9 @@ export function App() {
     );
 
     try {
-      if (!isDemoMode && credentials.geminiApiKey) {
+      if (!isDemoMode && hasAiKey) {
         try {
-          const gemini = new GeminiService(credentials.geminiApiKey);
+          const gemini = createAiService();
           const translated = await gemini.translateTask(task, target);
           handleUpdateTask(taskId, {
             businessTitle: translated.businessTitle,
@@ -1036,9 +1054,9 @@ export function App() {
     );
 
     try {
-      if (!isDemoMode && credentials.geminiApiKey) {
+      if (!isDemoMode && hasAiKey) {
         try {
-          const gemini = new GeminiService(credentials.geminiApiKey);
+          const gemini = createAiService();
           const translatedBatch = await gemini.translateTasks(tasks, targetLanguage);
           setTasks((prev) =>
             prev.map((t) => {
@@ -1123,14 +1141,19 @@ export function App() {
       let improvedTitle = task.businessTitle;
       let improvedDescription = task.businessDescription;
 
-      if (!isDemoMode && credentials.geminiApiKey) {
+      if (!isDemoMode && hasAiKey) {
         try {
-          const gemini = new GeminiService(credentials.geminiApiKey);
-          const commitMessages = taskCommits.map((c) => c.commit.message);
+          const gemini = createAiService();
+          const { commits: commitsWithChanges } = await new GitHubService(
+            credentials.githubToken
+          ).attachChangeSummaries(taskCommits, selectedRepo, 16000);
+          const commitDetails = commitsWithChanges.map((c) =>
+            c.changeSummary ? `${c.commit.message}\n\nCode changes:\n${c.changeSummary}` : c.commit.message
+          );
           const res = await gemini.improveTaskDescription(
             task.businessTitle,
             task.businessDescription,
-            commitMessages,
+            commitDetails,
             generationLanguage
           );
           improvedTitle = res.businessTitle;
