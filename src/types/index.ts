@@ -1,6 +1,9 @@
 export interface ApiCredentials {
   githubToken: string;
   geminiApiKey: string;
+  /** Optional free fallback AI providers, used when Gemini fails. */
+  groqApiKey?: string;
+  openRouterApiKey?: string;
   harvestAccountId: string;
   harvestAccessToken: string;
   githubAuthorFilter?: string;
@@ -60,6 +63,8 @@ export interface GitHubCommit {
   html_url: string;
   repoName?: string;
   repoFullName?: string;
+  /** Files changed + diff excerpt, fetched before sending the commit to the AI. */
+  changeSummary?: string;
 }
 
 export interface GeminiTaskItem {

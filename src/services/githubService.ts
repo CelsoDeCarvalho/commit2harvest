@@ -1,5 +1,16 @@
 import { GitHubBranch, GitHubCommit, GitHubRepo } from '../types';
 
+// Files whose diffs say nothing useful about the work done.
+const NOISE_FILE =
+  /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb|composer\.lock|Cargo\.lock|poetry\.lock)$|(^|\/)(dist|build|node_modules|vendor)\/|\.min\.(js|css)$|\.(map|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|eot|pdf|zip)$/i;
+
+// Commit contents never change, so summaries are cached for the session.
+const changeSummaryCache = new Map<string, string>();
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}\n... (truncated)`;
+}
+
 export class GitHubService {
   private token: string;
 
@@ -147,6 +158,91 @@ export class GitHubService {
     }
 
     return allCommits;
+  }
+
+  /**
+   * Fetch the code changes (files + diff excerpt) of each commit and attach them as
+   * `changeSummary`, so the AI can describe what was really done, not only the message.
+   * Commits whose details cannot be fetched are returned unchanged.
+   */
+  async attachChangeSummaries(
+    commits: GitHubCommit[],
+    fallbackRepoFullName: string,
+    totalCharBudget = 48000
+  ): Promise<{ commits: GitHubCommit[]; withChanges: number }> {
+    if (!this.token || commits.length === 0) return { commits, withChanges: 0 };
+
+    // Split the prompt budget across commits so large selections stay within model limits.
+    const perCommitBudget = Math.max(600, Math.min(4000, Math.floor(totalCharBudget / commits.length)));
+    const result: GitHubCommit[] = [...commits];
+    let withChanges = 0;
+    let next = 0;
+
+    const worker = async () => {
+      while (next < commits.length) {
+        const index = next++;
+        const commit = commits[index];
+        const repoFullName = commit.repoFullName || fallbackRepoFullName;
+        try {
+          const summary = await this.getChangeSummary(repoFullName, commit.sha, perCommitBudget);
+          if (summary) {
+            result[index] = { ...commit, changeSummary: summary };
+            withChanges++;
+          }
+        } catch (err) {
+          console.warn(`Could not fetch changes for ${commit.sha.substring(0, 7)}:`, err);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(5, commits.length) }, worker));
+    return { commits: result, withChanges };
+  }
+
+  private async getChangeSummary(repoFullName: string, sha: string, budget: number): Promise<string> {
+    const cacheKey = `${repoFullName}@${sha}`;
+    const cached = changeSummaryCache.get(cacheKey);
+    if (cached !== undefined) return truncate(cached, budget);
+
+    const [owner, repo] = repoFullName.split('/');
+    if (!owner || !repo) return '';
+
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${sha}`,
+      { headers: this.headers }
+    );
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+
+    const data = await response.json();
+    const files: any[] = data.files || [];
+    const relevant = files.filter((f) => !NOISE_FILE.test(f.filename));
+    const additions = files.reduce((sum, f) => sum + (f.additions || 0), 0);
+    const deletions = files.reduce((sum, f) => sum + (f.deletions || 0), 0);
+
+    const lines: string[] = [`${files.length} files changed (+${additions} / -${deletions})`];
+    for (const f of relevant) {
+      lines.push(`[${f.status}] ${f.filename} (+${f.additions}/-${f.deletions})`);
+    }
+    const skipped = files.length - relevant.length;
+    if (skipped > 0) lines.push(`(${skipped} generated/lock/asset files omitted)`);
+
+    // Diff excerpt: hunk headers and changed lines only, which carry the meaning.
+    for (const f of relevant) {
+      if (!f.patch) continue;
+      lines.push(`--- ${f.filename}`);
+      for (const line of String(f.patch).split('\n')) {
+        if (line.startsWith('@@')) {
+          const context = line.replace(/^@@[^@]*@@\s*/, '');
+          if (context) lines.push(`@@ ${context.slice(0, 120)}`);
+        } else if ((line.startsWith('+') || line.startsWith('-')) && line.trim().length > 1) {
+          lines.push(line.slice(0, 160));
+        }
+      }
+    }
+
+    const summary = lines.join('\n');
+    changeSummaryCache.set(cacheKey, summary);
+    return truncate(summary, budget);
   }
 
   async fetchCommitsFromOtherRepos(params: {
